@@ -226,9 +226,9 @@ Usage:
 
 Examples:
   argus config set llm.provider idealab
-  argus config set llm.base_url https://xx/v1/openai/chat/completions
+  argus config set llm.url https://xx/v1/openai/chat/completions
   argus config set llm.auth_token xxxxxxxxxx
   argus config set llm.model claude-opus-4-6
 
-Supported keys: llm.provider, llm.base_url, llm.auth_token, llm.model`)
+Supported keys: llm.provider, llm.url, llm.auth_token, llm.model`)
 }

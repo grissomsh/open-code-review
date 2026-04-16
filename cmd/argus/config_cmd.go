@@ -72,7 +72,7 @@ type Config struct {
 
 type LlmConfig struct {
 	Provider  string `json:"provider,omitempty"`
-	BaseURL   string `json:"base_url,omitempty"`
+	URL     string `json:"url,omitempty"`
 	AuthToken string `json:"auth_token,omitempty"`
 	Model     string `json:"model,omitempty"`
 }
@@ -112,14 +112,14 @@ func setConfigValue(cfg *Config, key, value string) error {
 	switch key {
 	case "llm.provider", "llm.Provider":
 		cfg.Llm.Provider = value
-	case "llm.base_url", "llm.BaseURL":
-		cfg.Llm.BaseURL = value
+	case "llm.url", "llm.URL":
+		cfg.Llm.URL = value
 	case "llm.auth_token", "llm.AuthToken":
 		cfg.Llm.AuthToken = value
 	case "llm.model", "llm.Model":
 		cfg.Llm.Model = value
 	default:
-		return fmt.Errorf("unknown config key: %s\nSupported keys: llm.provider, llm.base_url, llm.auth_token, llm.model", key)
+		return fmt.Errorf("unknown config key: %s\nSupported keys: llm.provider, llm.url, llm.auth_token, llm.model", key)
 	}
 	return nil
 }

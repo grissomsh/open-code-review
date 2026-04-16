@@ -103,7 +103,7 @@ type FunctionDef struct {
 
 // ClientConfig holds configuration for connecting to an LLM service.
 type ClientConfig struct {
-	BaseURL string        // e.g., "https://api.openai.com/v1"
+	URL string // Full API endpoint URL (e.g., "https://api.openai.com/v1/chat/completions")
 	APIKey  string        // Bearer token
 	Model   string        // Default model override
 	Timeout time.Duration // Request timeout
@@ -187,7 +187,7 @@ func (c *Client) StreamCompletion(req ChatRequest, cb func(chunk []byte) error) 
 		body["model"] = model
 
 		payload, _ := json.Marshal(body)
-		httpReq, err := http.NewRequest(http.MethodPost, c.cfg.BaseURL+"/chat/completions", bytes.NewReader(payload))
+		httpReq, err := http.NewRequest(http.MethodPost, c.cfg.URL, bytes.NewReader(payload))
 		if err != nil {
 			return fmt.Errorf("create request: %w", err)
 		}
@@ -318,7 +318,7 @@ func min(a, b int) int {
 // doRequest builds and sends a non-streaming completion request, returning the parsed response.
 func (c *Client) doRequest(model string, req ChatRequest) (*ChatResponse, error) {
 	payload, _ := json.Marshal(req)
-	httpReq, err := http.NewRequest(http.MethodPost, c.cfg.BaseURL+"/chat/completions", bytes.NewReader(payload))
+	httpReq, err := http.NewRequest(http.MethodPost, c.cfg.URL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}

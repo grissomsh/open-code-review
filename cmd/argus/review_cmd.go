@@ -55,12 +55,12 @@ func runReview(args []string) error {
 	if err != nil {
 		return fmt.Errorf("load app config: %w", err)
 	}
-	if cfg == nil || cfg.Llm.BaseURL == "" || cfg.Llm.AuthToken == "" {
-		return fmt.Errorf("llm.base_url and llm.auth_token are required in $HOME/.argus/config.json")
+	if cfg == nil || cfg.Llm.URL == "" || cfg.Llm.AuthToken == "" {
+		return fmt.Errorf("llm.url and llm.auth_token are required in $HOME/.argus/config.json")
 	}
 
 	llmClient := llm.NewClient(llm.ClientConfig{
-		BaseURL: cfg.Llm.BaseURL,
+		URL:     cfg.Llm.URL,
 		APIKey:  cfg.Llm.AuthToken,
 		Model:   cfg.Llm.Model,
 	})

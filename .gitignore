@@ -9,6 +9,8 @@ verdor/
 
 bin/
 
+argus
+
 # Mac OS X
 .DS_Store
 

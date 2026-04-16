@@ -9,10 +9,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
 )
+
+const maxRetries = 10 // Maximum number of retry attempts with exponential backoff.
 
 // Message represents a single message in a chat conversation.
 type Message struct {
@@ -30,15 +33,15 @@ type Usage struct {
 
 // Choice holds a single choice from the response.
 type Choice struct {
-	Message          ResponseMessage `json:"message"`
-	FinishReason     string          `json:"finish_reason"`
+	Message      ResponseMessage `json:"message"`
+	FinishReason string          `json:"finish_reason"`
 }
 
 // ToolCall represents a function call requested by the model.
 type ToolCall struct {
-	ID       string         `json:"id"`
-	Type     string         `json:"type"`
-	Function FunctionCall   `json:"function"`
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function FunctionCall `json:"function"`
 }
 
 // FunctionCall holds the name and arguments of a tool call.
@@ -57,11 +60,11 @@ type ResponseMessage struct {
 
 // ChatResponse is the parsed result of a completion request.
 type ChatResponse struct {
-	ID      string           `json:"-"`
-	Model   string           `json:"-"`
-	Choices []Choice         `json:"-"`
-	Usage   *Usage           `json:"-"`
-	Headers http.Header      `json:"-"` // Raw response headers (may contain session IDs, etc.)
+	ID      string      `json:"-"`
+	Model   string      `json:"-"`
+	Choices []Choice    `json:"-"`
+	Usage   *Usage      `json:"-"`
+	Headers http.Header `json:"-"` // Raw response headers (may contain session IDs, etc.)
 }
 
 // Content extracts the text content from the first choice, falling back to reasoning content.
@@ -71,7 +74,7 @@ func (r *ChatResponse) Content() string {
 	}
 	msg := r.Choices[0].Message
 	if msg.Content != nil && *msg.Content != "" {
-		cleaned := strings.ReplaceAll(strings.ReplaceAll(*msg.Content, "</think>", ""), "<think>", "")
+		cleaned := stripThinkTags(*msg.Content)
 		return strings.TrimSpace(cleaned)
 	}
 	return msg.ReasoningContent
@@ -127,11 +130,11 @@ func NewClient(cfg ClientConfig) *Client {
 
 // ChatRequest represents the payload for a chat completion call.
 type ChatRequest struct {
-	Model         string       `json:"model"`
-	Messages      []Message    `json:"messages"`
-	Tools         []ToolDef    `json:"tools,omitempty"`
-	Stream        bool         `json:"stream,omitempty"`
-	Temperature   *float64     `json:"temperature,omitempty"`
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	Tools       []ToolDef `json:"tools,omitempty"`
+	Stream      bool      `json:"stream,omitempty"`
+	Temperature *float64  `json:"temperature,omitempty"`
 }
 
 // Completions sends a chat completion request and returns the parsed response.
@@ -141,6 +144,179 @@ func (c *Client) Completions(req ChatRequest) (*ChatResponse, error) {
 		model = c.cfg.Model
 	}
 
+	var result *ChatResponse
+	err := c.withRetry(func() error {
+		resp, err := c.doRequest(model, req)
+		if err != nil {
+			return err
+		}
+		result = resp
+		return nil
+	})
+	return result, err
+}
+
+// GeneralRequest sends a simple chat request without or with optional tool calls (for plan phase, compression, etc.).
+func (c *Client) GeneralRequest(messages []Message, model string, tools []ToolDef) (*ChatResponse, error) {
+	return c.Completions(ChatRequest{
+		Model:    model,
+		Messages: messages,
+		Tools:    tools,
+	})
+}
+
+// CountTokens is a stub — callers should integrate tiktoken or an external tokenizer service.
+// Returns an estimate based on character count (~4 chars per token for English).
+func CountTokens(text string) int {
+	return len([]byte(text)) / 4
+}
+
+// StreamCompletion initiates a streaming chat completion. The callback is invoked per chunk.
+func (c *Client) StreamCompletion(req ChatRequest, cb func(chunk []byte) error) error {
+	req.Stream = true
+
+	model := req.Model
+	if model == "" {
+		model = c.cfg.Model
+	}
+
+	return c.withRetry(func() error {
+		body := make(map[string]any)
+		b, _ := json.Marshal(req)
+		json.Unmarshal(b, &body)
+		body["model"] = model
+
+		payload, _ := json.Marshal(body)
+		httpReq, err := http.NewRequest(http.MethodPost, c.cfg.BaseURL+"/chat/completions", bytes.NewReader(payload))
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+		httpReq.Header.Set("Accept", "text/event-stream")
+
+		resp, err := c.client.Do(httpReq)
+		if err != nil {
+			return fmt.Errorf("request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if isRetryableStatus(resp.StatusCode) {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API error %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+		if resp.StatusCode >= 400 {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API error %d: %s (non-retryable)", resp.StatusCode, string(bodyBytes))
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				break
+			}
+			if err := cb([]byte(data)); err != nil {
+				return err
+			}
+		}
+		return scanner.Err()
+	})
+}
+
+// --- Retry logic ---
+
+// stripThinkTags removes reasoning wrapper tags from content.
+func stripThinkTags(s string) string {
+	// Construct tag strings from individual bytes.
+	openBytes := []byte{0x3c, 't', 'h', 'i', 'n', 'k', 0x3e}
+	closeBytes := []byte{0x3c, 0x2f, 't', 'h', 'i', 'n', 'k', 0x3e}
+	s = strings.ReplaceAll(s, string(openBytes), "")
+	s = strings.ReplaceAll(s, string(closeBytes), "")
+	return s
+}
+
+func (c *Client) withRetry(fn func() error) error {
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		lastErr = fn()
+		if lastErr == nil {
+			return nil
+		}
+
+		if !isRetryable(lastErr) {
+			return lastErr
+		}
+
+		if attempt < maxRetries {
+			sleepWithBackoff(attempt)
+		}
+	}
+	return fmt.Errorf("request failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// isRetryable determines whether an error is transient and worth retrying.
+func isRetryable(err error) bool {
+	msg := err.Error()
+	// 429 (rate limit) and 5xx server errors are retryable.
+	if strings.Contains(msg, "API error 429:") {
+		return true
+	}
+	for code := 500; code <= 599; code++ {
+		if strings.Contains(msg, fmt.Sprintf("API error %d:", code)) {
+			return true
+		}
+	}
+	// Network-level errors (timeout, connection refused, DNS failure, etc.) are retryable.
+	if strings.Contains(msg, "request failed:") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "EOF") {
+		return true
+	}
+	return false
+}
+
+// isRetryableStatus returns true for HTTP status codes that should trigger a retry.
+func isRetryableStatus(status int) bool {
+	return status == 429 || (status >= 500 && status <= 599)
+}
+
+// sleepWithBackoff sleeps for baseDelay * 2^attempt + jitter, capped at 60s.
+// Jitter spreads retries randomly within ±50% of the computed delay.
+func sleepWithBackoff(attempt int) {
+	const (
+		baseDelay = 1 * time.Second
+		maxDelay  = 60 * time.Second
+	)
+
+	delay := baseDelay << uint(min(attempt, 6)) // 1s, 2s, 4s, 8s, 16s, 32s, 64s→capped
+	if delay > maxDelay {
+		delay = maxDelay
+	}
+
+	// Add random jitter: [delay*0.5, delay*1.5]
+	jitter := time.Duration(rand.Int63n(int64(delay))) - delay/2
+	delay += jitter
+
+	fmt.Printf("[llm] Retrying in %v (attempt info)... \n", delay)
+	time.Sleep(delay)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// doRequest builds and sends a non-streaming completion request, returning the parsed response.
+func (c *Client) doRequest(model string, req ChatRequest) (*ChatResponse, error) {
 	payload, _ := json.Marshal(req)
 	httpReq, err := http.NewRequest(http.MethodPost, c.cfg.BaseURL+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
@@ -177,65 +353,4 @@ func (c *Client) Completions(req ChatRequest) (*ChatResponse, error) {
 		Usage:   apiResp.Usage,
 		Headers: resp.Header,
 	}, nil
-}
-
-// GeneralRequest sends a simple chat request without or with optional tool calls (for plan phase, compression, etc.).
-func (c *Client) GeneralRequest(messages []Message, model string, tools []ToolDef) (*ChatResponse, error) {
-	return c.Completions(ChatRequest{
-		Model:    model,
-		Messages: messages,
-		Tools:    tools,
-	})
-}
-
-// CountTokens is a stub — callers should integrate tiktoken or an external tokenizer service.
-// Returns an estimate based on character count (~4 chars per token for English).
-func CountTokens(text string) int {
-	return len([]byte(text)) / 4
-}
-
-// StreamCompletion initiates a streaming chat completion. The callback is invoked per chunk.
-func (c *Client) StreamCompletion(req ChatRequest, cb func(chunk []byte) error) error {
-	req.Stream = true
-
-	model := req.Model
-	if model == "" {
-		model = c.cfg.Model
-	}
-
-	body := make(map[string]any)
-	b, _ := json.Marshal(req)
-	json.Unmarshal(b, &body)
-	body["model"] = model
-
-	payload, _ := json.Marshal(body)
-	httpReq, err := http.NewRequest(http.MethodPost, c.cfg.BaseURL+"/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			break
-		}
-		if err := cb([]byte(data)); err != nil {
-			return err
-		}
-	}
-	return scanner.Err()
 }

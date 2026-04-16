@@ -22,11 +22,14 @@ type Args struct {
 	// RepoDir is the root of the git repository.
 	RepoDir string
 
-	// BaseRef and HeadRef define the diff range (e.g., "main..feature-branch" or empty for staged).
-	BaseRef string
-	HeadRef string
+	// From and To define the diff range (e.g., "main..feature-branch").
+	From string
+	To   string
 
-	// UseStaged if true, reviews staged changes instead of base..head ref.
+	// Commit is a single commit hash to review (vs its parent).
+	Commit string
+
+	// UseStaged if true, reviews staged changes instead of from..to ref.
 	UseStaged bool
 
 	// Template loaded from YAML config file.
@@ -148,21 +151,20 @@ func (a *Agent) Run(ctx context.Context) ([]model.LlmComment, error) {
 
 // loadDiffs populates the diff-related fields.
 func (a *Agent) loadDiffs() error {
-	var rawText string
-	var err error
+	var provider *diff.Provider
 
-	if a.args.UseStaged {
-		rawText, err = diff.RunGitDiffStaged(a.args.RepoDir)
-	} else {
-		rawText, err = diff.RunGitDiff(a.args.RepoDir, a.args.BaseRef, a.args.HeadRef)
-	}
-	if err != nil {
-		return fmt.Errorf("git diff failed: %w", err)
+	switch {
+	case a.args.Commit != "":
+		provider = diff.NewCommitProvider(a.args.RepoDir, a.args.Commit)
+	case a.args.From != "" && a.args.To != "":
+		provider = diff.NewProvider(a.args.RepoDir, a.args.From, a.args.To)
+	default:
+		provider = diff.NewWorkspaceProvider(a.args.RepoDir)
 	}
 
-	parsed, err := diff.ParseDiffText(rawText, a.args.RepoDir)
+	parsed, err := provider.GetDiff()
 	if err != nil {
-		return fmt.Errorf("parse diff: %w", err)
+		return fmt.Errorf("get diffs: %w", err)
 	}
 
 	a.diffMap = make(map[string]string)
@@ -183,7 +185,7 @@ func (a *Agent) loadDiffs() error {
 }
 
 func lookupTool(reg tool.Registry, t tool.Tool) tool.Provider {
-	p, ok := reg[t.Alias]
+	p, ok := reg[t.Name()]
 	if !ok {
 		return nil
 	}
@@ -453,7 +455,7 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 //
 // All other tools execute synchronously on the calling goroutine.
 func (a *Agent) executeToolCall(_ context.Context, _ string, call llm.ToolCall) tool.TaskCheckpoint {
-	t := tool.OfAlias(call.Function.Name)
+	t := tool.OfName(call.Function.Name)
 	if !t.IsKnown() {
 		return tool.Of(tool.NotAvailableMsg)
 	}
@@ -469,7 +471,7 @@ func (a *Agent) executeToolCall(_ context.Context, _ string, call llm.ToolCall) 
 
 	var args map[string]any
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-		return tool.Of(fmt.Sprintf("Error parsing tool arguments for %s: %v", t.Alias, err))
+		return tool.Of(fmt.Sprintf("Error parsing tool arguments for %s: %v", t.Name(), err))
 	}
 
 	// Async path for code_comment when worker pool is configured
@@ -488,7 +490,7 @@ func (a *Agent) executeToolCall(_ context.Context, _ string, call llm.ToolCall) 
 	// Synchronous path for all other tools
 	result, err := p.Execute(args)
 	if err != nil {
-		return tool.Of(fmt.Sprintf("Error executing tool %s: %v", t.Alias, err))
+		return tool.Of(fmt.Sprintf("Error executing tool %s: %v", t.Name(), err))
 	}
 	return tool.Of(result)
 }
@@ -541,7 +543,7 @@ func buildToolDefsFromRegistry(reg tool.Registry) []llm.ToolDef {
 		defs = append(defs, llm.ToolDef{
 			Type: "function",
 			Function: llm.FunctionDef{
-				Name:        provider.Tool().Alias,
+				Name:        provider.Tool().Name(),
 				Description: "", // TODO: pull description from provider interface
 				Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 			},

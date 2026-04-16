@@ -2,36 +2,25 @@ package tool
 
 import "fmt"
 
-// ToolName enumerates all available code review tools.
-// name: original name (XML-compatible), alias: clean name (function-call compatible).
+// Tool represents a single review tool.
 type Tool struct {
-	Name  string // original name, used in XML-format tool calls
-	Alias string // clean alias, used in native function calls (no special chars)
+	name string
 }
 
 var (
-	Unknown   = Tool{Name: "unknown", Alias: "unknown"}
-	TaskDone  = Tool{Name: "task_done", Alias: "task_done"}
-	CodeComment = Tool{Name: "code_comment", Alias: "code_comment"}
-	FileRead    = Tool{Name: "file.read", Alias: "file_read"}
-	FileFind    = Tool{Name: "file.find", Alias: "file_find"}
-	FileReadDiff = Tool{Name: "file.read_diff", Alias: "file_read_diff"}
-	FileSearch   = Tool{Name: "file.search", Alias: "file_search"}
-	CodeSearch   = Tool{Name: "code.search", Alias: "code_search"}
+	Unknown    = Tool{name: "unknown"}
+	TaskDone   = Tool{name: "task_done"}
+	CodeComment = Tool{name: "code_comment"}
+	FileRead   = Tool{name: "file_read"}
+	FileFind   = Tool{name: "file_find"}
+	FileReadDiff = Tool{name: "file_read_diff"}
+	FileSearch  = Tool{name: "file_search"}
+	CodeSearch  = Tool{name: "code_search"}
 )
-
-func OfAlias(alias string) Tool {
-	for _, t := range allTools() {
-		if t.Alias == alias {
-			return t
-		}
-	}
-	return Unknown
-}
 
 func OfName(name string) Tool {
 	for _, t := range allTools() {
-		if t.Name == name {
+		if t.name == name {
 			return t
 		}
 	}
@@ -41,6 +30,9 @@ func OfName(name string) Tool {
 func allTools() []Tool {
 	return []Tool{Unknown, TaskDone, CodeComment, FileRead, FileFind, FileReadDiff, FileSearch, CodeSearch}
 }
+
+// Name returns the tool's identifier name.
+func (t Tool) Name() string { return t.name }
 
 // IsKnown reports whether the tool is not UNKNOWN.
 func (t Tool) IsKnown() bool {
@@ -72,16 +64,16 @@ func NewRegistry() Registry {
 
 // Register adds a tool provider to the registry.
 func (r Registry) Register(p Provider) {
-	r[p.Tool().Alias] = p
+	r[p.Tool().name] = p
 }
 
-// Lookup finds a provider by alias. Returns a zero-value LookupResult if not found.
-func (r Registry) Lookup(alias string) LookupResult {
-	p, ok := r[alias]
+// Lookup finds a provider by name. Returns a zero-value LookupResult if not found.
+func (r Registry) Lookup(name string) LookupResult {
+	p, ok := r[name]
 	if !ok {
 		return LookupResult{Found: false}
 	}
-	return LookupResult{Result: p.Tool().Alias, Found: true}
+	return LookupResult{Result: p.Tool().name, Found: true}
 }
 
 // ErrToolNotFound is returned when a tool alias cannot be resolved.

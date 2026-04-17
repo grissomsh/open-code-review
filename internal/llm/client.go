@@ -18,9 +18,65 @@ import (
 const maxRetries = 10 // Maximum number of retry attempts with exponential backoff.
 
 // Message represents a single message in a chat conversation.
+// Content can be either plain string (for system/user/assistant/tool messages)
+// or an array of content blocks (used by Claude for multi-part content).
+// ToolCallID is used by OpenAI-format APIs to identify which tool call this result responds to.
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string `json:"role"`
+	Content    any    `json:"content"`                // string or []ContentBlock
+	ToolCallID string `json:"tool_call_id,omitempty"` // OpenAI tool result identifier
+}
+
+// ContentBlock represents a single block within a multi-part message content.
+// Used by Claude's Messages API for tool results and multimodal content.
+type ContentBlock struct {
+	Type     string          `json:"type"`                       // "text" or "tool_result"
+	Text     string          `json:"text,omitempty"`             // for type="text"
+	ToolUseID string         `json:"tool_use_id,omitempty"`      // for type="tool_result"
+	Content  []ContentBlock  `json:"content,omitempty"`          // nested text blocks inside tool_result
+}
+
+// NewTextMessage creates a message with simple string content.
+func NewTextMessage(role, content string) Message {
+	return Message{Role: role, Content: content}
+}
+
+// NewToolResultMessage creates a tool-role message with the given result.
+// Uses the OpenAI Chat Completions format: role="tool" with tool_call_id and plain string content.
+func NewToolResultMessage(toolCallID, result string) Message {
+	return Message{
+		Role:       "tool",
+		Content:    result,
+		ToolCallID: toolCallID,
+	}
+}
+
+// ExtractText returns the concatenated text content from a Message's Content field.
+// Handles both plain string and content block array formats.
+func (m *Message) ExtractText() string {
+	switch v := m.Content.(type) {
+	case string:
+		return v
+	case []ContentBlock:
+		var sb strings.Builder
+		for _, block := range v {
+			sb.WriteString(extractBlockText(block))
+		}
+		return sb.String()
+	default:
+		return ""
+	}
+}
+
+func extractBlockText(block ContentBlock) string {
+	if block.Text != "" {
+		return block.Text
+	}
+	var sb strings.Builder
+	for _, nested := range block.Content {
+		sb.WriteString(extractBlockText(nested))
+	}
+	return sb.String()
 }
 
 // Usage holds token usage statistics from a response.
@@ -317,6 +373,10 @@ func min(a, b int) int {
 
 // doRequest builds and sends a non-streaming completion request, returning the parsed response.
 func (c *Client) doRequest(model string, req ChatRequest) (*ChatResponse, error) {
+	if model == "" {
+		model = c.cfg.Model
+	}
+	req.Model = model
 	payload, _ := json.Marshal(req)
 	httpReq, err := http.NewRequest(http.MethodPost, c.cfg.URL, bytes.NewReader(payload))
 	if err != nil {

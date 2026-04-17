@@ -1,6 +1,7 @@
 package config
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -37,15 +38,29 @@ type Template struct {
 	MaxSubtaskExecMinutes int              `json:"MAX_SUBTASK_EXECUTION_TIME_MINUTES"`
 }
 
-// LoadTemplate parses the task_template.json config file.
-func LoadTemplate(path string) (*Template, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read template file %s: %w", path, err)
+//go:embed task_template.json
+var defaultTemplate []byte
+
+//go:embed tools.json
+var defaultToolsJSON []byte
+
+//go:embed system_rules.json
+var defaultSystemRules []byte
+
+// LoadDefaultSystemRule parses the embedded system_rules.json.
+func LoadDefaultSystemRule() (*SystemRule, error) {
+	var rule SystemRule
+	if err := json.Unmarshal(defaultSystemRules, &rule); err != nil {
+		return nil, fmt.Errorf("unmarshal default system rules: %w", err)
 	}
+	return &rule, nil
+}
+
+// LoadTemplate parses the embedded task_template.json as the default template.
+func LoadTemplate() (*Template, error) {
 	var tpl Template
-	if err := json.Unmarshal(data, &tpl); err != nil {
-		return nil, fmt.Errorf("unmarshal template file: %w", err)
+	if err := json.Unmarshal(defaultTemplate, &tpl); err != nil {
+		return nil, fmt.Errorf("unmarshal default template: %w", err)
 	}
 	return &tpl, nil
 }
@@ -64,9 +79,8 @@ func (t *Template) Validate() error {
 	return nil
 }
 
-// LlmConversation mirrors LlmConversation from the Java side — a preset prompt with model settings.
+// LlmConversation mirrors LlmConversation from the Java side — a preset prompt with settings.
 type LlmConversation struct {
-	Model    string        `json:"model"`
 	Timeout  int           `json:"timeout"`
 	Messages []ChatMessage `json:"messages"`
 }
@@ -85,11 +99,18 @@ type ToolConfigEntry struct {
 	Definition json.RawMessage `json:"definition"`
 }
 
-// LoadTools parses the tools.json config file.
+// LoadTools parses the tools config file. When path is empty, falls back to
+// the embedded default tools configuration.
 func LoadTools(path string) ([]ToolConfigEntry, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read tools file %s: %w", path, err)
+	var data []byte
+	var err error
+	if path == "" {
+		data = defaultToolsJSON
+	} else {
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read tools file %s: %w", path, err)
+		}
 	}
 	var tools []ToolConfigEntry
 	if err := json.Unmarshal(data, &tools); err != nil {

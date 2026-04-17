@@ -23,15 +23,18 @@ func runReview(args []string) error {
 		return nil
 	}
 
-	tpl, err := loadTemplate(opts.configPath)
+	tpl, err := config.LoadTemplate()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return fmt.Errorf("load default template: %w", err)
 	}
 	if err := tpl.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	var sysRule *config.SystemRule
+	sysRule, err := config.LoadDefaultSystemRule()
+	if err != nil {
+		return fmt.Errorf("load default system rule: %w", err)
+	}
 	if opts.rulePath != "" {
 		sysRule, err = loadSystemRule(opts.rulePath)
 		if err != nil {
@@ -58,11 +61,11 @@ func runReview(args []string) error {
 	if cfg == nil || cfg.Llm.URL == "" || cfg.Llm.AuthToken == "" {
 		return fmt.Errorf("llm.url and llm.auth_token are required in $HOME/.argus/config.json")
 	}
-
+	model := cfg.Llm.Model
 	llmClient := llm.NewClient(llm.ClientConfig{
 		URL:     cfg.Llm.URL,
 		APIKey:  cfg.Llm.AuthToken,
-		Model:   cfg.Llm.Model,
+		Model:   model,
 	})
 
 	collector := tool.NewCommentCollector()
@@ -91,6 +94,7 @@ func runReview(args []string) error {
 		CommentCollector:      collector,
 		MaxConcurrency:        opts.concurrency,
 		PerFileTimeoutMinutes: opts.perFileTimeout,
+		Model:                 model,
 	})
 
 	ctx := context.Background()
@@ -105,12 +109,6 @@ func runReview(args []string) error {
 	outputText(comments)
 
 	return nil
-}
-
-// These helpers are shared between subcommands.
-
-func loadTemplate(path string) (*config.Template, error) {
-	return config.LoadTemplate(path)
 }
 
 func loadSystemRule(path string) (*config.SystemRule, error) {

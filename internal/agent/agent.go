@@ -72,6 +72,10 @@ type Args struct {
 	// When provided, loadDiffs writes into this map so that FileReadDiffProvider
 	// can serve diff content to the LLM without duplicating git parsing.
 	DiffMap map[string]string
+
+	// Model is the user-configured model name used as fallback when
+	// template phases (plan/memory_compression) don't specify one.
+	Model string
 }
 
 // Agent orchestrates the AI-powered code review.
@@ -318,7 +322,7 @@ func (a *Agent) fillMessages(msgs []config.ChatMessage, vars fillVars) []llm.Mes
 		content = strings.ReplaceAll(content, "{{change_files}}", vars.changeFiles)
 		content = strings.ReplaceAll(content, "{{plan_guidance}}", vars.planGuide)
 		content = strings.ReplaceAll(content, "{{diff}}", vars.diff)
-		result = append(result, llm.Message{Role: m.Role, Content: content})
+		result = append(result, llm.NewTextMessage(m.Role, content))
 	}
 	return result
 }
@@ -370,7 +374,7 @@ func (a *Agent) executePlanPhase(_ context.Context, newPath, rawDiff, changeFile
 		systemRule:  rule,
 	})
 
-	resp, err := a.args.LLMClient.GeneralRequest(messages, pt.Model, a.args.PlanToolDefs)
+	resp, err := a.args.LLMClient.GeneralRequest(messages, a.args.Model, a.args.PlanToolDefs)
 	if err != nil {
 		return "", fmt.Errorf("plan request: %w", err)
 	}
@@ -398,7 +402,7 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 		toolReqCount--
 
 		resp, err := a.args.LLMClient.Completions(llm.ChatRequest{
-			Model:    a.args.Template.MainTask.Model,
+			Model:    a.args.Model,
 			Messages: messages,
 			Tools:    a.args.MainToolDefs,
 		})
@@ -412,10 +416,10 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 		if len(calls) == 0 {
 			// No tool calls - remind the model
 			fmt.Printf("[argus] No tool calls parsed for %s, retrying...\n", newPath)
-			messages = append(messages,
-				llm.Message{Role: "assistant", Content: content},
-				llm.Message{Role: "user", Content: "You did not successfully call any tools. Please try again or use task_done if finished."},
-			)
+			messages = append(messages, llm.NewTextMessage("user", "You did not successfully call any tools. Please try again or use task_done if finished."))
+			if content != "" {
+				messages = append(messages[:len(messages)-1], llm.NewTextMessage("assistant", content), messages[len(messages)-1])
+			}
 			continue
 		}
 
@@ -534,21 +538,17 @@ func (a *Agent) addNextMessage(assistantContent string, results []tool.ToolCallR
 	// Check if context compression is needed
 	tokenCount := countMessagesTokens(*messages)
 	if tokenCount > a.args.Template.TokenWarningThreshold {
-		*messages = compressMessages(*messages, a.args.Template.MemoryCompressionTask, a.args.LLMClient)
+		*messages = compressMessages(*messages, a.args.Template.MemoryCompressionTask, a.args.LLMClient, a.args.Model)
 	}
 
-	// Add assistant message
-	*messages = append(*messages, llm.Message{
-		Role:    "assistant",
-		Content: assistantContent,
-	})
+	// Add assistant message only when content is non-empty.
+	if assistantContent != "" {
+		*messages = append(*messages, llm.NewTextMessage("assistant", assistantContent))
+	}
 
-	// Add tool response messages
+	// Add tool response messages using Claude's tool_result format
 	for _, r := range results {
-		*messages = append(*messages, llm.Message{
-			Role:    "tool",
-			Content: r.Result,
-		})
+		*messages = append(*messages, llm.NewToolResultMessage(r.ToolCallID, r.Result))
 	}
 
 	return countMessagesTokens(*messages) < a.args.Template.TokenWarningThreshold
@@ -557,7 +557,7 @@ func (a *Agent) addNextMessage(assistantContent string, results []tool.ToolCallR
 func countMessagesTokens(msgs []llm.Message) int {
 	var total int
 	for _, m := range msgs {
-		total += llm.CountTokens(m.Content)
+		total += llm.CountTokens(m.ExtractText())
 	}
 	return total
 }
@@ -585,7 +585,7 @@ func BuildToolDefs(entries []config.ToolConfigEntry, planOnly bool) []llm.ToolDe
 }
 
 // compressMessages runs the memory compression task and replaces old messages with a summary.
-func compressMessages(msgs []llm.Message, compTask config.LlmConversation, client *llm.Client) []llm.Message {
+func compressMessages(msgs []llm.Message, compTask config.LlmConversation, client *llm.Client, model string) []llm.Message {
 	if len(compTask.Messages) == 0 || len(msgs) <= 2 {
 		return msgs[:min(len(msgs), 2)]
 	}
@@ -594,10 +594,10 @@ func compressMessages(msgs []llm.Message, compTask config.LlmConversation, clien
 	compressionMsgs := make([]llm.Message, 0, len(compTask.Messages))
 	for _, m := range compTask.Messages {
 		content := strings.ReplaceAll(m.Content, "{{context}}", contextXML)
-		compressionMsgs = append(compressionMsgs, llm.Message{Role: m.Role, Content: content})
+		compressionMsgs = append(compressionMsgs, llm.NewTextMessage(m.Role, content))
 	}
 
-	resp, err := client.GeneralRequest(compressionMsgs, compTask.Model, nil)
+	resp, err := client.GeneralRequest(compressionMsgs, model, nil)
 	if err != nil {
 		fmt.Printf("[argus] Memory compression failed: %v\n", err)
 		return msgs[:2]
@@ -611,8 +611,8 @@ func compressMessages(msgs []llm.Message, compTask config.LlmConversation, clien
 	compressed := msgs[:2]
 	// Append summary to the original user prompt
 	userMsg := compressed[1]
-	userMsg.Content = userMsg.Content + "\n\n" + summary
-	compressed[1] = userMsg
+	currentText := userMsg.ExtractText()
+	compressed[1] = llm.NewTextMessage(userMsg.Role, currentText+"\n\n"+summary)
 	return compressed
 }
 
@@ -621,7 +621,7 @@ func buildMessageXML(msgs []llm.Message) string {
 	for i, m := range msgs {
 		sb.WriteString(fmt.Sprintf("<message id=\"%d\" role=\"%s\">\n", i, m.Role))
 		sb.WriteString("    <content>\n")
-		sb.WriteString(fmt.Sprintf("      %s\n", m.Content))
+		sb.WriteString(fmt.Sprintf("      %s\n", m.ExtractText()))
 		sb.WriteString("    </content>\n")
 		sb.WriteString("</message>")
 		if i < len(msgs)-1 {
@@ -636,4 +636,14 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// firstNonEmpty returns the first non-empty string from the arguments.
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }

@@ -4,6 +4,10 @@
 package session
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -93,8 +97,91 @@ func (sh *SessionHistory) GetOrCreateFileSession(filePath string) *FileSession {
 // Finalize marks the session as complete and sets the end time.
 func (sh *SessionHistory) Finalize() {
 	sh.mu.Lock()
-	defer sh.mu.Unlock()
 	sh.EndTime = time.Now()
+	sh.mu.Unlock()
+	sh.writeDebugDump()
+}
+
+// --- Debug Dump ---
+
+type sessionSnapshot struct {
+	SessionID    string                   `json:"session_id"`
+	RepoDir      string                   `json:"repo_dir"`
+	StartTime    time.Time                `json:"start_time"`
+	EndTime      time.Time                `json:"end_time"`
+	FileSessions []*fileSessionSnapshot   `json:"file_sessions"`
+}
+
+type fileSessionSnapshot struct {
+	FilePath    string                                 `json:"file_path"`
+	TaskRecords map[string][]*taskRecordSnapshot       `json:"task_records"`
+}
+
+type taskRecordSnapshot struct {
+	Type            string             `json:"type"`
+	RequestNo       int                `json:"request_no"`
+	RequestMessages any                `json:"request_messages"`
+	Response        *ResponseRecord    `json:"response"`
+	ToolResults     []ToolResultRecord `json:"tool_results"`
+	Duration        time.Duration      `json:"duration"`
+	Error           string             `json:"error"`
+}
+
+func (sh *SessionHistory) writeDebugDump() {
+	sessionName := sh.SessionID
+	if sessionName == "" {
+		sessionName = fmt.Sprintf("unknown-%d", time.Now().Unix())
+	}
+
+	sh.mu.Lock()
+	snap := &sessionSnapshot{
+		SessionID:  sh.SessionID,
+		RepoDir:    sh.RepoDir,
+		StartTime:  sh.StartTime,
+		EndTime:    sh.EndTime,
+		FileSessions: make([]*fileSessionSnapshot, 0, len(sh.FileSessions)),
+	}
+	for _, fs := range sh.FileSessions {
+		fs.mu.Lock()
+		fss := &fileSessionSnapshot{
+			FilePath:    fs.FilePath,
+			TaskRecords: make(map[string][]*taskRecordSnapshot),
+		}
+		for ttype, records := range fs.TaskRecords {
+			for _, rec := range records {
+				fss.TaskRecords[string(ttype)] = append(fss.TaskRecords[string(ttype)], &taskRecordSnapshot{
+					Type:            string(rec.Type),
+					RequestNo:       rec.RequestNo,
+					RequestMessages: rec.RequestMessages,
+					Response:        rec.Response,
+					ToolResults:     rec.ToolResults,
+					Duration:        rec.Duration,
+					Error:           rec.Error,
+				})
+			}
+		}
+		fs.mu.Unlock()
+		snap.FileSessions = append(snap.FileSessions, fss)
+	}
+	sh.mu.Unlock()
+
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		fmt.Printf("[argus debug] Failed to marshal session history: %v\n", err)
+		return
+	}
+
+	debugDir := filepath.Join(sh.RepoDir, "temp")
+	if err := os.MkdirAll(debugDir, 0755); err != nil {
+		fmt.Printf("[argus debug] Failed to create debug dir %s: %v\n", debugDir, err)
+		return
+	}
+	filename := filepath.Join(debugDir, fmt.Sprintf("argus-session-%s.json", sessionName))
+	if err := os.WriteFile(filename, data, 0644); err != nil {
+		fmt.Printf("[argus debug] Failed to write session dump to %s: %v\n", filename, err)
+	} else {
+		fmt.Printf("[argus debug] Session history written to %s\n", filename)
+	}
 }
 
 // AppendTaskRecord adds a new task record to the file session for the given

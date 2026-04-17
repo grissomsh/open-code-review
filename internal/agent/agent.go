@@ -310,8 +310,8 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) ([]model.LlmCo
 		content = strings.ReplaceAll(content, "{{current_file_path}}", newPath)
 		content = strings.ReplaceAll(content, "{{system_rule}}", rule)
 		content = strings.ReplaceAll(content, "{{change_files}}", changeFilesExcludingCurrent)
-		content = strings.ReplaceAll(content, "{{plan_guidance}}", planResult)
 		content = strings.ReplaceAll(content, "{{diff}}", d.Diff)
+		content = strings.ReplaceAll(content, "{{plan_guidance}}", planResult)
 		messages = append(messages, llm.NewTextMessage(m.Role, content))
 	}
 

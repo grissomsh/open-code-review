@@ -539,7 +539,7 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 //	}
 //
 // All other tools execute synchronously on the calling goroutine.
-func (a *Agent) executeToolCall(_ context.Context, _ string, call llm.ToolCall, rec *session.TaskRecord) tool.TaskCheckpoint {
+func (a *Agent) executeToolCall(_ context.Context, newPath string, call llm.ToolCall, rec *session.TaskRecord) tool.TaskCheckpoint {
 	t := tool.OfName(call.Function.Name)
 	if !t.IsKnown() {
 		return tool.Of(tool.NotAvailableMsg)
@@ -557,6 +557,14 @@ func (a *Agent) executeToolCall(_ context.Context, _ string, call llm.ToolCall, 
 	var args map[string]any
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 		return tool.Of(fmt.Sprintf("Error parsing tool arguments for %s: %v", t.Name(), err))
+	}
+
+	// Inject current file path as default for code_comment when not provided.
+	// The model already knows which file it's reviewing, so it omits path.
+	if t == tool.CodeComment && newPath != "" {
+		if _, ok := args["path"]; !ok {
+			args["path"] = newPath
+		}
 	}
 
 	// Async path for code_comment when worker pool is configured

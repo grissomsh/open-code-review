@@ -140,7 +140,6 @@ func buildToolRegistry(collector *tool.CommentCollector, fr *tool.FileReader, di
 	reg.Register(tool.NewFileRead(fr))
 	reg.Register(tool.NewFileFind(fr))
 	reg.Register(tool.NewFileReadDiff())
-	reg.Register(tool.NewFileSearch(fr))
 	reg.Register(tool.NewCodeSearch(fr))
 	reg.Register(&tool.CodeCommentProvider{Collector: collector})
 

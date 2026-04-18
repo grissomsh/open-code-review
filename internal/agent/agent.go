@@ -286,9 +286,14 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) ([]model.LlmCo
 
 	rule := a.resolveSystemRule(strings.ToLower(newPath))
 
-	// Phase 1: Plan
+	threshold := a.args.Template.PlanModeLineThreshold
+	changeLines := d.Insertions + d.Deletions
+
+	// Phase 1: Plan (skip when changes are below threshold)
 	var planResult string
-	if a.args.Template.PlanTask != nil && len(a.args.Template.PlanTask.Messages) > 0 {
+	if a.args.Template.PlanTask != nil && len(a.args.Template.PlanTask.Messages) > 0 && threshold > 0 && changeLines < int64(threshold) {
+		fmt.Printf("[argus] Skipping plan phase for %s (%d lines < threshold %d)\n", newPath, changeLines, threshold)
+	} else if a.args.Template.PlanTask != nil && len(a.args.Template.PlanTask.Messages) > 0 {
 		var err error
 		planResult, err = a.executePlanPhase(ctx, newPath, d.Diff, changeFilesExcludingCurrent, rule)
 		if err != nil {
@@ -311,7 +316,11 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) ([]model.LlmCo
 		content = strings.ReplaceAll(content, "{{system_rule}}", rule)
 		content = strings.ReplaceAll(content, "{{change_files}}", changeFilesExcludingCurrent)
 		content = strings.ReplaceAll(content, "{{diff}}", d.Diff)
-		content = strings.ReplaceAll(content, "{{plan_guidance}}", planResult)
+		if planResult == "" {
+			content = strings.ReplaceAll(content, "### 审查计划\n{{plan_guidance}}\n\n", "")
+		} else {
+			content = strings.ReplaceAll(content, "{{plan_guidance}}", planResult)
+		}
 		messages = append(messages, llm.NewTextMessage(m.Role, content))
 	}
 

@@ -17,6 +17,7 @@ type Template struct {
 	ToolRequestWaitTimeMs int              `json:"TOOL_REQUEST_WAIT_TIME_MS"`
 	MaxToolRequestTimes   int              `json:"MAX_TOOL_REQUEST_TIMES"`
 	MaxSubtaskExecMinutes int              `json:"MAX_SUBTASK_EXECUTION_TIME_MINUTES"`
+	PlanModeLineThreshold int              `json:"PLAN_MODE_LINE_THRESHOLD"`
 }
 
 //go:embed task_template.json

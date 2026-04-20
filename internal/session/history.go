@@ -52,12 +52,21 @@ type TaskRecord struct {
 	Error         string
 }
 
+// TokenUsage holds estimated token usage for a single LLM request/response cycle.
+// Calculated locally using tiktoken so it works with any model provider.
+type TokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	CacheReadTokens  int `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+}
+
 // ResponseRecord holds the parsed LLM response.
 type ResponseRecord struct {
 	Content   string
 	ToolCalls []llm.ToolCall
 	Model     string
-	Usage     *llm.Usage
+	Usage     *TokenUsage
 }
 
 // ToolResultRecord records the result of a tool call executed after the LLM response.
@@ -200,6 +209,7 @@ func (fs *FileSession) AppendTaskRecord(taskType TaskType, messages []llm.Messag
 }
 
 // SetResponse records the LLM response in the most recent TaskRecord of the given type.
+// It computes estimated token usage locally using tiktoken, independent of any API format.
 func (tr *TaskRecord) SetResponse(resp *llm.ChatResponse, duration time.Duration) {
 	if resp == nil || len(resp.Choices) == 0 {
 		tr.Error = "empty response"
@@ -211,11 +221,24 @@ func (tr *TaskRecord) SetResponse(resp *llm.ChatResponse, duration time.Duration
 	if choice.Message.Content != nil {
 		content = *choice.Message.Content
 	}
+
+	// Estimate tokens using tiktoken — works with any model provider.
+	var promptTokens int
+	for _, m := range tr.RequestMessages {
+		promptTokens += llm.CountTokens(m.ExtractText())
+	}
+	completionTokens := llm.CountTokens(content)
+
+	usage := &TokenUsage{
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+	}
+
 	tr.Response = &ResponseRecord{
 		Content:   content,
 		ToolCalls: choice.Message.ToolCalls,
 		Model:     resp.Model,
-		Usage:     resp.Usage,
+		Usage:     usage,
 	}
 	tr.Duration = duration
 }

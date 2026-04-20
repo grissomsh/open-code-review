@@ -93,13 +93,6 @@ func extractBlockText(block ContentBlock) string {
 	return sb.String()
 }
 
-// Usage holds token usage statistics from a response.
-type Usage struct {
-	PromptTokens            int64 `json:"prompt_tokens"`
-	CompletionTokens        int64 `json:"completion_tokens"`
-	CacheCreationInputToken int64 `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens    int64 `json:"cache_read_input_tokens,omitempty"`
-}
 
 // Choice holds a single choice from the response.
 type Choice struct {
@@ -133,7 +126,6 @@ type ChatResponse struct {
 	ID      string      `json:"-"`
 	Model   string      `json:"-"`
 	Choices []Choice    `json:"-"`
-	Usage   *Usage      `json:"-"`
 	Headers http.Header `json:"-"` // Raw response headers (may contain session IDs, etc.)
 }
 
@@ -478,7 +470,6 @@ func (c *Client) doRequest(model string, req ChatRequest) (*ChatResponse, error)
 		ID      string   `json:"id"`
 		Model   string   `json:"model"`
 		Choices []Choice `json:"choices"`
-		Usage   *Usage   `json:"usage,omitempty"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
@@ -488,7 +479,6 @@ func (c *Client) doRequest(model string, req ChatRequest) (*ChatResponse, error)
 		ID:      apiResp.ID,
 		Model:   apiResp.Model,
 		Choices: apiResp.Choices,
-		Usage:   apiResp.Usage,
 		Headers: resp.Header,
 	}, nil
 }

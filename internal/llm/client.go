@@ -127,6 +127,7 @@ type ChatResponse struct {
 	Model   string      `json:"-"`
 	Choices []Choice    `json:"-"`
 	Headers http.Header `json:"-"` // Raw response headers (may contain session IDs, etc.)
+	Usage   *UsageInfo  `json:"-"` // Token usage extracted from API response
 }
 
 // Content extracts the text content from the first choice, falling back to reasoning content.
@@ -461,8 +462,12 @@ func (c *Client) doRequest(model string, req ChatRequest) (*ChatResponse, error)
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+
 	if resp.StatusCode >= 400 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -471,7 +476,7 @@ func (c *Client) doRequest(model string, req ChatRequest) (*ChatResponse, error)
 		Model   string   `json:"model"`
 		Choices []Choice `json:"choices"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
@@ -480,5 +485,6 @@ func (c *Client) doRequest(model string, req ChatRequest) (*ChatResponse, error)
 		Model:   apiResp.Model,
 		Choices: apiResp.Choices,
 		Headers: resp.Header,
+		Usage:   resolveUsage(bodyBytes),
 	}, nil
 }

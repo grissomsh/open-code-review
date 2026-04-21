@@ -87,7 +87,7 @@ func RecordCommentsGenerated(ctx context.Context, n int64) {
 	if mCommentsGenerated != nil { mCommentsGenerated.Add(ctx, n) }
 }
 
-func RecordLLMRequest(ctx context.Context, model string, dur time.Duration, inputTokens, outputTokens int64, status string) {
+func RecordLLMRequest(ctx context.Context, model string, dur time.Duration, totalTokens int64, status string) {
 	if !IsEnabled() { return }
 	ensureMetrics()
 
@@ -96,9 +96,8 @@ func RecordLLMRequest(ctx context.Context, model string, dur time.Duration, inpu
 	if mLLMRequests != nil { mLLMRequests.Add(ctx, 1, metric.WithAttributes(attrs...)) }
 	if mLLMDuration != nil { mLLMDuration.Record(ctx, dur.Seconds(), metric.WithAttributes(attribute.String("model", model))) }
 
-	total := inputTokens + outputTokens
-	if mLLMTokens != nil && total > 0 {
-		mLLMTokens.Add(ctx, total, metric.WithAttributes(attribute.String("type", "total"), attribute.String("model", model)))
+	if mLLMTokens != nil && totalTokens > 0 {
+		mLLMTokens.Add(ctx, totalTokens, metric.WithAttributes(attribute.String("type", "total"), attribute.String("model", model)))
 	}
 }
 

@@ -508,19 +508,16 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 		duration := time.Since(startTime)
 		if err != nil {
 			rec.SetError(err, duration)
-			telemetry.RecordLLMRequest(ctx, a.args.Model, duration, 0, 0, "error")
+			telemetry.RecordLLMRequest(ctx, a.args.Model, duration, 0, "error")
 			return diff.ResolveLineNumbers(a.collectPendingComments(), a.diffs), fmt.Errorf("LLM completion error: %w", err)
 		}
 		rec.SetResponse(resp, duration)
-		// Record LLM metrics with token info if available.
-		inputTokens := int64(0)
-		outputTokens := int64(0)
-		if resp.Headers != nil {
-			if v := resp.Headers.Get("X-RateLimit-Remaining-Tokens"); v != "" { /* not available */ }
+		// Record LLM metrics with token info from API response usage field.
+		totalTokens := int64(0)
+		if resp.Usage != nil {
+			totalTokens = resp.Usage.TotalTokens
 		}
-		_ = inputTokens // placeholder for token counting
-		_ = outputTokens
-		telemetry.RecordLLMRequest(ctx, a.args.Model, duration, inputTokens, outputTokens, "ok")
+		telemetry.RecordLLMRequest(ctx, a.args.Model, duration, totalTokens, "ok")
 
 		content := resp.Content()
 		calls := resp.ToolCalls()

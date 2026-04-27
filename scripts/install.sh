@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# install.sh — Install or upgrade argus CLI
+# install.sh — Install or upgrade OpenCodeReview CLI
 #
 # Usage (pipelined):
 #   curl -fsSL https://git.cn-hangzhou.oss-cdn.aliyun-inc.com/opencodereview-cli/install.sh | sh

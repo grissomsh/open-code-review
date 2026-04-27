@@ -1,5 +1,5 @@
 // Package llm provides an OpenAI-compatible LLM client interface.
-// Argus supports any service that implements the OpenAI Chat Completion API schema,
+// OpenCodeReview supports any service that implements the OpenAI Chat Completion API schema,
 // including OpenAI, Claude (via Anthropic's OpenAI-compatible endpoint), local models, etc.
 package llm
 

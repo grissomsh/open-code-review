@@ -34,35 +34,35 @@ func ensureMetrics() {
 	m := getMeter()
 
 	var err error
-	mReviewDuration, err = m.Int64Histogram("argus.review.duration_seconds",
+	mReviewDuration, err = m.Int64Histogram("ocr.review.duration_seconds",
 		metric.WithUnit("s"), metric.WithDescription("Total duration of a code review run"))
 	checkMetricErr(err)
 
-	mFilesReviewed, err = m.Int64Counter("argus.files_reviewed_total",
+	mFilesReviewed, err = m.Int64Counter("ocr.files_reviewed_total",
 		metric.WithDescription("Number of files reviewed in this session"))
 	checkMetricErr(err)
 
-	mCommentsGenerated, err = m.Int64Counter("argus.comments_generated_total",
+	mCommentsGenerated, err = m.Int64Counter("ocr.comments_generated_total",
 		metric.WithDescription("Number of review comments generated"))
 	checkMetricErr(err)
 
-	mLLMRequests, err = m.Int64Counter("argus.llm.requests_total",
+	mLLMRequests, err = m.Int64Counter("ocr.llm.requests_total",
 		metric.WithDescription("Total LLM API requests made"))
 	checkMetricErr(err)
 
-	mLLMTokens, err = m.Int64Counter("argus.llm.tokens_used",
+	mLLMTokens, err = m.Int64Counter("ocr.llm.tokens_used",
 		metric.WithDescription("Tokens consumed by LLM requests"))
 	checkMetricErr(err)
 
-	mLLMDuration, err = m.Float64Histogram("argus.llm.request_duration_seconds",
+	mLLMDuration, err = m.Float64Histogram("ocr.llm.request_duration_seconds",
 		metric.WithUnit("s"), metric.WithDescription("Duration of individual LLM API requests"))
 	checkMetricErr(err)
 
-	mToolCalls, err = m.Int64Counter("argus.tool.calls_total",
+	mToolCalls, err = m.Int64Counter("ocr.tool.calls_total",
 		metric.WithDescription("Total tool calls made"))
 	checkMetricErr(err)
 
-	mToolExecutionTime, err = m.Float64Histogram("argus.tool.execution_duration_seconds",
+	mToolExecutionTime, err = m.Float64Histogram("ocr.tool.execution_duration_seconds",
 		metric.WithUnit("s"), metric.WithDescription("Duration of tool executions"))
 	checkMetricErr(err)
 }

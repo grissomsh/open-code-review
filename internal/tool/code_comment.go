@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/argus-review/argus/internal/model"
+	"github.com/open-code-review/open-code-review/internal/model"
 )
 
 // CodeCommentProvider submits review comments to the per-Agent CommentCollector.

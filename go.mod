@@ -1,4 +1,4 @@
-module github.com/argus-review/argus
+module github.com/open-code-review/open-code-review
 
 go 1.25.0
 

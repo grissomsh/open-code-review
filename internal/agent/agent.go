@@ -9,15 +9,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/argus-review/argus/internal/config/rules"
-	"github.com/argus-review/argus/internal/config/template"
-	"github.com/argus-review/argus/internal/config/toolsconfig"
-	"github.com/argus-review/argus/internal/diff"
-	"github.com/argus-review/argus/internal/llm"
-	"github.com/argus-review/argus/internal/model"
-	"github.com/argus-review/argus/internal/session"
-	"github.com/argus-review/argus/internal/telemetry"
-	"github.com/argus-review/argus/internal/tool"
+	"github.com/open-code-review/open-code-review/internal/config/rules"
+	"github.com/open-code-review/open-code-review/internal/config/template"
+	"github.com/open-code-review/open-code-review/internal/config/toolsconfig"
+	"github.com/open-code-review/open-code-review/internal/diff"
+	"github.com/open-code-review/open-code-review/internal/llm"
+	"github.com/open-code-review/open-code-review/internal/model"
+	"github.com/open-code-review/open-code-review/internal/session"
+	"github.com/open-code-review/open-code-review/internal/telemetry"
+	"github.com/open-code-review/open-code-review/internal/tool"
 )
 
 // Args holds all dependencies and configuration needed to run a review session.
@@ -175,7 +175,7 @@ func (a *Agent) Run(ctx context.Context) ([]model.LlmComment, error) {
 	diffSpan.End()
 
 	if len(a.diffs) == 0 {
-		fmt.Println("[argus] No files changed. Skipping review.")
+		fmt.Println("[ocr] No files changed. Skipping review.")
 		telemetry.Event(ctx, "no.files.changed")
 		a.session.Finalize()
 		return nil, nil
@@ -183,7 +183,7 @@ func (a *Agent) Run(ctx context.Context) ([]model.LlmComment, error) {
 
 	a.currentDate = time.Now().Format("2006-01-02 15:04")
 
-	fmt.Printf("[argus] Reviewing %d file(s) in %s\n", len(a.diffs), a.args.RepoDir)
+	fmt.Printf("[ocr] Reviewing %d file(s) in %s\n", len(a.diffs), a.args.RepoDir)
 	telemetry.Event(ctx, "review.started",
 		telemetry.AnyToAttr("file.count", len(a.diffs)),
 		telemetry.AnyToAttr("repo.dir", a.args.RepoDir))
@@ -295,7 +295,7 @@ func (a *Agent) dispatchSubtasks(ctx context.Context) ([]model.LlmComment, error
 
 			fileComments, err := a.executeSubtask(fileCtx, d)
 			if err != nil {
-				fmt.Printf("[argus] Subtask error for %s: %v\n", d.NewPath, err)
+				fmt.Printf("[ocr] Subtask error for %s: %v\n", d.NewPath, err)
 				telemetry.ErrorEvent(fileCtx, "subtask.error", err,
 					telemetry.AnyToAttr("file.path", d.NewPath))
 			}
@@ -335,7 +335,7 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) ([]model.LlmCo
 	// Phase 1: Plan (skip when changes are below threshold)
 	var planResult string
 	if a.args.Template.PlanTask != nil && len(a.args.Template.PlanTask.Messages) > 0 && threshold > 0 && changeLines < int64(threshold) {
-		fmt.Printf("[argus] Skipping plan phase for %s (%d lines < threshold %d)\n", newPath, changeLines, threshold)
+		fmt.Printf("[ocr] Skipping plan phase for %s (%d lines < threshold %d)\n", newPath, changeLines, threshold)
 		telemetry.Event(ctx, "plan.skipped",
 			telemetry.AnyToAttr("file.path", newPath),
 			telemetry.AnyToAttr("lines.changed", changeLines),
@@ -344,7 +344,7 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) ([]model.LlmCo
 		var err error
 		planResult, err = a.executePlanPhase(ctx, newPath, d.Diff, changeFilesExcludingCurrent, rule)
 		if err != nil {
-			fmt.Printf("[argus] Plan phase failed for %s: %v (continuing without plan)\n", newPath, err)
+			fmt.Printf("[ocr] Plan phase failed for %s: %v (continuing without plan)\n", newPath, err)
 			telemetry.Eventf(ctx, "plan.failed", err.Error(),
 				telemetry.AnyToAttr("file.path", newPath))
 			planResult = ""
@@ -375,7 +375,7 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) ([]model.LlmCo
 
 	tokenCount := countMessagesTokens(messages)
 	if tokenCount > a.args.Template.TokenWarningThreshold {
-		fmt.Printf("[argus] WARNING: prompt tokens (%d) exceed threshold (%d) for %s\n",
+		fmt.Printf("[ocr] WARNING: prompt tokens (%d) exceed threshold (%d) for %s\n",
 			tokenCount, a.args.Template.TokenWarningThreshold, newPath)
 		telemetry.Event(ctx, "token.threshold.exceeded",
 			telemetry.AnyToAttr("file.path", newPath),
@@ -454,7 +454,7 @@ func (a *Agent) executePlanPhase(_ context.Context, newPath, rawDiff, changeFile
 	if resp.Usage != nil {
 		atomic.AddInt64(&a.totalTokensUsed, int64(resp.Usage.TotalTokens))
 	}
-	fmt.Printf("[argus] Plan completed for %s\n", newPath)
+	fmt.Printf("[ocr] Plan completed for %s\n", newPath)
 	return resp.Content(), nil
 }
 
@@ -540,7 +540,7 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 
 		if len(calls) == 0 {
 			// No tool calls - remind the model
-			fmt.Printf("[argus] No tool calls parsed for %s, retrying...\n", newPath)
+			fmt.Printf("[ocr] No tool calls parsed for %s, retrying...\n", newPath)
 			messages = append(messages, llm.NewTextMessage("user", "You did not successfully call any tools. Please try again or use task_done if finished."))
 			if content != "" {
 				messages = append(messages[:len(messages)-1], llm.NewTextMessage("assistant", content), messages[len(messages)-1])
@@ -581,19 +581,19 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 			break
 		}
 		if !hasValidResult {
-			fmt.Printf("[argus] No valid tool results for %s, stopping.\n", newPath)
+			fmt.Printf("[ocr] No valid tool results for %s, stopping.\n", newPath)
 			break
 		}
 
 		succeed := a.addNextMessage(content, calls, results, &messages, newPath)
 		if !succeed {
-			fmt.Printf("[argus] Context compression exceeded threshold for %s, stopping.\n", newPath)
+			fmt.Printf("[ocr] Context compression exceeded threshold for %s, stopping.\n", newPath)
 			break
 		}
 	}
 
 	if toolReqCount <= 0 {
-		fmt.Printf("[argus] Max tool requests reached for %s.\n", newPath)
+		fmt.Printf("[ocr] Max tool requests reached for %s.\n", newPath)
 	}
 
 	comments := a.args.CommentCollector.Comments()
@@ -720,7 +720,7 @@ func BuildToolDefs(entries []toolsconfig.ToolConfigEntry, planOnly bool) []llm.T
 		}
 		var fn llm.FunctionDef
 		if err := json.Unmarshal(defRaw, &fn); err != nil {
-			fmt.Printf("[argus] WARNING: failed to parse tool definition %q: %v\n", e.Name, err)
+			fmt.Printf("[ocr] WARNING: failed to parse tool definition %q: %v\n", e.Name, err)
 			continue
 		}
 		defs = append(defs, llm.ToolDef{
@@ -752,7 +752,7 @@ func (a *Agent) compressAndRecord(msgs []llm.Message, filePath string) []llm.Mes
 	rec := fs.AppendTaskRecord(session.MemoryCompressionTask, compressionMsgs)
 	if err != nil {
 		rec.SetError(err, duration)
-		fmt.Printf("[argus] Memory compression failed: %v\n", err)
+		fmt.Printf("[ocr] Memory compression failed: %v\n", err)
 		return msgs[:2]
 	}
 	rec.SetResponse(resp, duration)
@@ -788,7 +788,7 @@ func compressMessages(msgs []llm.Message, compTask template.LlmConversation, cli
 
 	resp, err := client.GeneralRequest(compressionMsgs, model, nil)
 	if err != nil {
-		fmt.Printf("[argus] Memory compression failed: %v\n", err)
+		fmt.Printf("[ocr] Memory compression failed: %v\n", err)
 		return msgs[:2]
 	}
 

@@ -3,7 +3,7 @@ package tool
 import (
 	"sync"
 
-	"github.com/argus-review/argus/internal/model"
+	"github.com/open-code-review/open-code-review/internal/model"
 )
 
 // CommentCollector is a thread-safe, per-Agent comment store.

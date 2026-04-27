@@ -10,7 +10,7 @@ temp/
 
 bin/
 
-/argus
+/opencodereview
 
 # Mac OS X
 .DS_Store

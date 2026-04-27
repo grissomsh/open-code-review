@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/argus-review/argus/internal/model"
+	"github.com/open-code-review/open-code-review/internal/model"
 )
 
 // DiffContextLines defines the number of context lines around each changed hunk.

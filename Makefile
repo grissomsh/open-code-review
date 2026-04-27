@@ -2,7 +2,7 @@
 	build-all dist sha256sum version-info \
 	build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64
 
-BINARY_NAME := argus
+BINARY_NAME := opencodereview
 GO          := go
 DIST_DIR    := ./dist
 
@@ -21,12 +21,12 @@ LD_FLAGS    := -s -w \
 define BUILD_PLATFORM
 	GOOS=$(1) GOARCH=$(2) CGO_ENABLED=0 $(GO) build -ldflags "$(LD_FLAGS)" \
 		-o $(DIST_DIR)/$(BINARY_NAME)-$(VERSION)-$(1)-$(2) \
-		./cmd/argus
+		./cmd/opencodereview
 endef
 
 # ── Development targets ──────────────────────────────────────────────────────
 build:
-	$(GO) build -ldflags "$(LD_FLAGS)" -o $(DIST_DIR)/$(BINARY_NAME) ./cmd/argus
+	$(GO) build -ldflags "$(LD_FLAGS)" -o $(DIST_DIR)/$(BINARY_NAME) ./cmd/opencodereview
 
 test:
 	$(GO) test -v -race -count=1 ./...

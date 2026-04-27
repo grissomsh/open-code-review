@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/argus-review/argus/internal/llm"
+	"github.com/open-code-review/open-code-review/internal/llm"
 )
 
 // TaskType identifies the kind of LLM request within a file subtask.
@@ -176,20 +176,20 @@ func (sh *SessionHistory) writeDebugDump() {
 
 	data, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
-		fmt.Printf("[argus debug] Failed to marshal session history: %v\n", err)
+		fmt.Printf("[ocr debug] Failed to marshal session history: %v\n", err)
 		return
 	}
 
 	debugDir := filepath.Join(sh.RepoDir, "temp")
 	if err := os.MkdirAll(debugDir, 0755); err != nil {
-		fmt.Printf("[argus debug] Failed to create debug dir %s: %v\n", debugDir, err)
+		fmt.Printf("[ocr debug] Failed to create debug dir %s: %v\n", debugDir, err)
 		return
 	}
-	filename := filepath.Join(debugDir, fmt.Sprintf("argus-session-%s.json", sessionName))
+	filename := filepath.Join(debugDir, fmt.Sprintf("ocr-session-%s.json", sessionName))
 	if err := os.WriteFile(filename, data, 0644); err != nil {
-		fmt.Printf("[argus debug] Failed to write session dump to %s: %v\n", filename, err)
+		fmt.Printf("[ocr debug] Failed to write session dump to %s: %v\n", filename, err)
 	} else {
-		fmt.Printf("[argus debug] Session history written to %s\n", filename)
+		fmt.Printf("[ocr debug] Session history written to %s\n", filename)
 	}
 }
 

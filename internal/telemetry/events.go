@@ -61,32 +61,32 @@ func FormatDuration(dur time.Duration) string {
 
 // PrintTraceSummary prints a one-line summary of the review to stdout.
 func PrintTraceSummary(filesReviewed, commentsGenerated int64, totalTokens int64, duration time.Duration) {
-	fmt.Printf("[argus] Summary: %d file(s) reviewed, %d comment(s), ~%d token(s) used, %s elapsed\n",
+	fmt.Printf("[ocr] Summary: %d file(s) reviewed, %d comment(s), ~%d token(s) used, %s elapsed\n",
 		filesReviewed, commentsGenerated, totalTokens, FormatDuration(duration))
 }
 
 // PrintToolCallStarted prints a line when a tool begins execution.
 // Args are summarized as key-value pairs (path, search terms, etc.).
-// Example: [argus]   ▶ file_read "internal/config/rules/loader.go"
+// Example: [ocr]   ▶ file_read "internal/config/rules/loader.go"
 func PrintToolCallStarted(toolName string, args map[string]any) {
 	summary := summarizeArgs(args)
 	if summary != "" {
-		fmt.Printf("[argus]   ▶ %s %s\n", toolName, summary)
+		fmt.Printf("[ocr]   ▶ %s %s\n", toolName, summary)
 	} else {
-		fmt.Printf("[argus]   ▶ %s\n", toolName)
+		fmt.Printf("[ocr]   ▶ %s\n", toolName)
 	}
 }
 
 // PrintToolCallFinished prints a line when a tool finishes successfully.
-// Example: [argus]   ✔ file_read "internal/config/rules/loader.go" (12ms)
+// Example: [ocr]   ✔ file_read "internal/config/rules/loader.go" (12ms)
 func PrintToolCallFinished(toolName string, dur time.Duration) {
-	fmt.Printf("[argus]   ✔ %s (%s)\n", toolName, FormatDuration(dur))
+	fmt.Printf("[ocr]   ✔ %s (%s)\n", toolName, FormatDuration(dur))
 }
 
 // PrintToolCallError prints a line when a tool fails.
-// Example: [argus]   ✘ file_read "internal/config/rules/loader.go" failed: permission denied
+// Example: [ocr]   ✘ file_read "internal/config/rules/loader.go" failed: permission denied
 func PrintToolCallError(toolName string, err error) {
-	fmt.Fprintf(os.Stderr, "[argus]   ✘ %s failed: %v\n", toolName, err)
+	fmt.Fprintf(os.Stderr, "[ocr]   ✘ %s failed: %v\n", toolName, err)
 }
 
 // summarizeArgs extracts a concise key=value summary from tool arguments for console display.

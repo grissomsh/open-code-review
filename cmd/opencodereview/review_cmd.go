@@ -1,0 +1,168 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/open-code-review/open-code-review/internal/agent"
+	"github.com/open-code-review/open-code-review/internal/config/rules"
+	"github.com/open-code-review/open-code-review/internal/config/template"
+	"github.com/open-code-review/open-code-review/internal/config/toolsconfig"
+	"github.com/open-code-review/open-code-review/internal/llm"
+	"github.com/open-code-review/open-code-review/internal/telemetry"
+	"github.com/open-code-review/open-code-review/internal/tool"
+)
+
+func runReview(args []string) error {
+	opts, err := parseReviewFlags(args)
+	if err != nil {
+		return fmt.Errorf("parse flags: %w", err)
+	}
+	if opts.showHelp {
+		printReviewUsage()
+		return nil
+	}
+
+	tpl, err := template.LoadDefault()
+	if err != nil {
+		return fmt.Errorf("load default template: %w", err)
+	}
+	if err := tpl.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+
+	sysRule, err := rules.LoadDefault()
+	if err != nil {
+		return fmt.Errorf("load default system rule: %w", err)
+	}
+	if opts.rulePath != "" {
+		sysRule, err = loadSystemRule(opts.rulePath)
+		if err != nil {
+			return fmt.Errorf("load system rule: %w", err)
+		}
+	}
+
+	toolEntries, err := toolsconfig.Load(opts.toolConfigPath)
+	if err != nil {
+		return fmt.Errorf("load tools: %w", err)
+	}
+	planToolDefs := agent.BuildToolDefs(toolEntries, true)
+	mainToolDefs := agent.BuildToolDefs(toolEntries, false)
+
+	repoDir, err := resolveRepoDir(opts.repoDir)
+	if err != nil {
+		return fmt.Errorf("resolve repo: %w", err)
+	}
+
+	cfg, err := LoadAppConfig(defaultConfigPath())
+	if err != nil {
+		return fmt.Errorf("load app config: %w", err)
+	}
+	if cfg == nil || cfg.Llm.URL == "" || cfg.Llm.AuthToken == "" {
+		return fmt.Errorf("llm.url and llm.auth_token are required in $HOME/.open-code-review/config.json")
+	}
+	model := cfg.Llm.Model
+	tpl.ApplyLanguage(cfg.Language)
+	llmClient := llm.NewClient(llm.ClientConfig{
+		URL:     cfg.Llm.URL,
+		APIKey:  cfg.Llm.AuthToken,
+		Model:   model,
+	})
+
+	collector := tool.NewCommentCollector()
+	mode := tool.ParseReviewMode(opts.from, opts.to, opts.commit)
+	ref, _ := mode.RefValue(opts.to, opts.commit)
+	diffMap := make(map[string]string)
+	fileReader := &tool.FileReader{
+		RepoDir: repoDir,
+		Mode:    mode,
+		Ref:     ref,
+	}
+	tools := buildToolRegistry(collector, fileReader, diffMap)
+
+	ag := agent.New(agent.Args{
+		RepoDir:               repoDir,
+		From:                  opts.from,
+		To:                    opts.to,
+		Commit:                opts.commit,
+		DiffMap:               diffMap,
+		Template:              *tpl,
+		SystemRule:            sysRule,
+		LLMClient:             llmClient,
+		Tools:                 tools,
+		PlanToolDefs:          planToolDefs,
+		MainToolDefs:          mainToolDefs,
+		CommentCollector:      collector,
+		CommentWorkerPool:     agent.NewCommentWorkerPool(8),
+		MaxConcurrency:        opts.concurrency,
+		PerFileTimeoutMinutes: opts.perFileTimeout,
+		Model:                 model,
+	})
+
+	ctx, span := telemetry.StartSpan(context.Background(), "review.run")
+	defer span.End()
+	startTime := time.Now()
+
+	comments, err := ag.Run(ctx)
+	if err != nil {
+		telemetry.SetAttr(span, "error", err.Error())
+		return fmt.Errorf("review failed: %w", err)
+	}
+
+	// Record summary metrics (files_reviewed is refined by agent.Run).
+	duration := time.Since(startTime)
+	telemetry.RecordReviewDuration(ctx, duration)
+	if len(comments) > 0 {
+		telemetry.RecordCommentsGenerated(ctx, int64(len(comments)))
+	}
+	telemetry.PrintTraceSummary(ag.FilesReviewed(), int64(len(comments)), ag.TotalTokensUsed(), duration)
+
+	if opts.outputFormat == "json" {
+		return outputJSON(comments)
+	}
+	outputText(comments)
+
+	return nil
+}
+
+func loadSystemRule(path string) (*rules.SystemRule, error) {
+	return rules.LoadFile(path)
+}
+
+func resolveRepoDir(input string) (string, error) {
+	if input == "" {
+		var err error
+		input, err = os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("get working directory: %w", err)
+		}
+	}
+	absPath, err := filepath.Abs(input)
+	if err != nil {
+		return "", fmt.Errorf("resolve absolute path: %w", err)
+	}
+	out, err := runGitCmd(absPath, "rev-parse", "--git-dir")
+	if err != nil || len(out) == 0 {
+		return "", fmt.Errorf("%s is not a git repository", absPath)
+	}
+	return absPath, nil
+}
+
+func buildToolRegistry(collector *tool.CommentCollector, fr *tool.FileReader, diffMap map[string]string) tool.Registry {
+	reg := tool.NewRegistry()
+	reg.Register(tool.NewFileRead(fr))
+	reg.Register(tool.NewFileFind(fr))
+	reg.Register(tool.NewFileReadDiff())
+	reg.Register(tool.NewCodeSearch(fr))
+	reg.Register(&tool.CodeCommentProvider{Collector: collector})
+
+	// Wire up FileReadDiffProvider with shared diffMap pointer so Agent's loadDiffs populates it.
+	if p, ok := reg[tool.FileReadDiff.Name()].(*tool.FileReadDiffProvider); ok {
+		p.DiffMap = diffMap
+	}
+
+	return reg
+}

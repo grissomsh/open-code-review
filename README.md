@@ -1,6 +1,6 @@
-# Argus
+# OpenCodeReview
 
-AI-powered code review CLI tool built in Go. Argus reads git diffs, sends changed files to a configurable LLM (via OpenAI-compatible API), and generates structured code review comments — acting as an autonomous AI reviewer that can read your full project context, not just the diff.
+AI-powered code review CLI tool built in Go. OpenCodeReview reads git diffs, sends changed files to a configurable LLM (via OpenAI-compatible API), and generates structured code review comments — acting as an autonomous AI reviewer that can read your full project context, not just the diff.
 
 ## Features
 
@@ -20,15 +20,15 @@ AI-powered code review CLI tool built in Go. Argus reads git diffs, sends change
 Requires [Go](https://go.dev/) 1.24+.
 
 ```bash
-git clone https://github.com/argus-review/argus.git
-cd argus
-make        # builds binary at ./bin/argus
+git clone https://github.com/open-code-review/open-code-review.git
+cd open-code-review
+make        # builds binary at ./bin/opencodereview
 ```
 
 Or build directly:
 
 ```bash
-go build -o bin/argus ./cmd/argus
+go build -o bin/opencodereview ./cmd/opencodereview
 ```
 
 Add `bin/` to your `$PATH` or copy the binary somewhere accessible.
@@ -37,20 +37,20 @@ Add `bin/` to your `$PATH` or copy the binary somewhere accessible.
 
 ### 1. Configure your LLM
 
-Argus connects to any OpenAI-compatible API endpoint. Set up your credentials:
+OpenCodeReview connects to any OpenAI-compatible API endpoint. Set up your credentials:
 
 ```bash
-argus config set llm.url https://your-api-endpoint/v1/chat/completions
-argus config set llm.auth_token your-api-key-here
-argus config set llm.model claude-opus-4-6
+ocr config set llm.url https://your-api-endpoint/v1/chat/completions
+ocr config set llm.auth_token your-api-key-here
+ocr config set llm.model claude-opus-4-6
 ```
 
-Configuration is stored at `~/.argus/config.json`.
+Configuration is stored at `~/.open-code-review/config.json`.
 
 ### 2. Test connectivity
 
 ```bash
-argus llm test
+ocr llm test
 ```
 
 ### 3. Run a review
@@ -59,13 +59,13 @@ Navigate to any git repository and run:
 
 ```bash
 # Review all staged, unstaged, and untracked changes
-argus review
+ocr review
 
 # Review differences between two branches
-argus review --from main --to feature-branch
+ocr review --from main --to feature-branch
 
 # Review a specific commit
-argus review --commit abc123
+ocr review --commit abc123
 ```
 
 ## Usage
@@ -74,10 +74,10 @@ argus review --commit abc123
 
 | Command | Description |
 |---------|-------------|
-| `argus review` / `argus r` | Start a code review session |
-| `argus config set <key> <value>` | Manage user configuration |
-| `argus llm test` | Test LLM connectivity |
-| `argus version` | Show version information |
+| `ocr review` / `ocr r` | Start a code review session |
+| `ocr config set <key> <value>` | Manage user configuration |
+| `ocr llm test` | Test LLM connectivity |
+| `ocr version` | Show version information |
 
 ### Review Flags
 
@@ -98,24 +98,24 @@ argus review --commit abc123
 **Workspace mode** (no flags): reviews all staged, unstaged, and untracked changes in the current working directory.
 
 ```bash
-argus review
+ocr review
 ```
 
 **Branch range mode**: reviews changes between two git refs using merge-base.
 
 ```bash
-argus review --from main --to dev
+ocr review --from main --to dev
 ```
 
 **Single commit mode**: reviews a specific commit against its parent.
 
 ```bash
-argus review --commit abc123
+ocr review --commit abc123
 ```
 
 ## Configuration
 
-User config lives at `~/.argus/config.json`. Supported keys:
+User config lives at `~/.open-code-review/config.json`. Supported keys:
 
 | Key | Description | Example |
 |-----|-------------|---------|
@@ -166,7 +166,7 @@ Example config:
 └─────────────┘
 ```
 
-Each changed file is reviewed as an independent subtask running concurrently (configurable semaphore). Full session history (requests, responses, tool calls, durations, token estimates) is saved to `<repo>/temp/argus-session-*.json` for debugging.
+Each changed file is reviewed as an independent subtask running concurrently (configurable semaphore). Full session history (requests, responses, tool calls, durations, token estimates) is saved to `<repo>/temp/ocr-session-*.json` for debugging.
 
 ### LLM Agent Tools
 
@@ -184,7 +184,7 @@ During a review, the AI agent has access to these tools:
 ## Project Structure
 
 ```
-├── cmd/argus/          # CLI entry point and command dispatch
+├── cmd/opencodereview/   # CLI entry point and command dispatch
 │   ├── main.go         # Application entry point
 │   ├── review_cmd.go   # Core review orchestration
 │   ├── flags.go        # Flag parsing

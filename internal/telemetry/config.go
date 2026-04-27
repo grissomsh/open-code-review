@@ -1,4 +1,4 @@
-// Package telemetry provides OpenTelemetry-based observability for Argus CLI.
+// Package telemetry provides OpenTelemetry-based observability for OpenCodeReview CLI.
 // It supports console output (for personal use) and OTLP export (for system integration).
 package telemetry
 
@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	defaultServiceName    = "argus"
+	defaultServiceName    = "open-code-review"
 	defaultOTLPEndpoint   = ""
 	defaultExporter       = "console"
 	defaultContentLogging = false
@@ -17,7 +17,7 @@ const (
 
 // Config holds resolved telemetry configuration.
 type Config struct {
-	Enabled      bool   // Master switch; false when ARGUS_ENABLE_TELEMETRY is unset
+	Enabled      bool   // Master switch; false when OCR_ENABLE_TELEMETRY is unset
 	ServiceName  string // Service name in traces/metrics
 	Exporter     string // "console" or "otlp"
 	OTLPEndpoint string // OTLP collector address (grpc/http)
@@ -40,7 +40,7 @@ func DefaultConfig() Config {
 // resolveEnv reads environment variables to override defaults.
 // Environment takes highest priority.
 func resolveEnv(cfg *Config) {
-	if os.Getenv("ARGUS_ENABLE_TELEMETRY") == "1" {
+	if os.Getenv("OCR_ENABLE_TELEMETRY") == "1" {
 		cfg.Enabled = true
 	}
 	if v := os.Getenv("OTEL_SERVICE_NAME"); v != "" {
@@ -53,12 +53,12 @@ func resolveEnv(cfg *Config) {
 	if v := os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL"); v != "" {
 		cfg.OTLPProtocol = v
 	}
-	if os.Getenv("ARGUS_CONTENT_LOGGING") == "1" {
+	if os.Getenv("OCR_CONTENT_LOGGING") == "1" {
 		cfg.ContentLog = true
 	}
 }
 
-// telemetrySection matches the telemetry key in ~/.argus/config.json.
+// telemetrySection matches the telemetry key in ~/.open-code-review/config.json.
 type telemetrySection struct {
 	Enabled      *bool   `json:"enabled,omitempty"`
 	Exporter     *string `json:"exporter,omitempty"`
@@ -121,11 +121,11 @@ func ResolveConfig(configPath string) Config {
 	return cfg
 }
 
-// HomeConfigPath returns the default path to ~/.argus/config.json.
+// HomeConfigPath returns the default path to ~/.open-code-review/config.json.
 func HomeConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".argus", "config.json")
+	return filepath.Join(home, ".open-code-review", "config.json")
 }

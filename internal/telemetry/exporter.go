@@ -31,7 +31,7 @@ func initOTLPProviders(ctx context.Context, res *resource.Resource, cfg Config) 
 		otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint),
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[argus] WARNING: failed to create OTLP trace exporter: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ocr] WARNING: failed to create OTLP trace exporter: %v\n", err)
 		return
 	}
 
@@ -46,7 +46,7 @@ func initOTLPProviders(ctx context.Context, res *resource.Resource, cfg Config) 
 		otlpmetricgrpc.WithEndpoint(cfg.OTLPEndpoint),
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[argus] WARNING: failed to create OTLP metric exporter: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ocr] WARNING: failed to create OTLP metric exporter: %v\n", err)
 		return
 	}
 
@@ -62,7 +62,7 @@ func initOTLPProviders(ctx context.Context, res *resource.Resource, cfg Config) 
 func initConsoleProviders(res *resource.Resource) {
 	traceExp, err := newStdoutTraceExporter()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[argus] WARNING: failed to create console trace exporter: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ocr] WARNING: failed to create console trace exporter: %v\n", err)
 		return
 	}
 
@@ -75,7 +75,7 @@ func initConsoleProviders(res *resource.Resource) {
 
 	metricExp, err := newStdoutMetricExporter()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[argus] WARNING: failed to create console metric exporter: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ocr] WARNING: failed to create console metric exporter: %v\n", err)
 		return
 	}
 

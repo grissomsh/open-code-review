@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/argus-review/argus/internal/diff"
-	"github.com/argus-review/argus/internal/model"
+	"github.com/open-code-review/open-code-review/internal/diff"
+	"github.com/open-code-review/open-code-review/internal/model"
 )
 
 func main() {

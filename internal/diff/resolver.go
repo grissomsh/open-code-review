@@ -3,7 +3,7 @@ package diff
 import (
 	"strings"
 
-	"github.com/argus-review/argus/internal/model"
+	"github.com/open-code-review/open-code-review/internal/model"
 )
 
 // ResolveLineNumbers populates StartLine/EndLine on each comment by matching

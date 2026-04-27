@@ -34,6 +34,6 @@ func ShutdownWithTimeout(ctx context.Context, timeout time.Duration) {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if err := Shutdown(cctx); err != nil {
-		fmt.Fprintf(os.Stderr, "[argus] WARNING: telemetry shutdown error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ocr] WARNING: telemetry shutdown error: %v\n", err)
 	}
 }

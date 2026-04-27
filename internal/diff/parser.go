@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/argus-review/argus/internal/model"
+	"github.com/open-code-review/open-code-review/internal/model"
 )
 
 var (

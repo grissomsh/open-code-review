@@ -80,6 +80,9 @@ type Args struct {
 	// template phases (plan/memory_compression) don't specify one.
 	Model string
 
+	// Debug enables debug mode which writes a session dump to temp/.
+	Debug bool
+
 	// Session is an optional session history instance for collecting conversation records.
 	// When nil, a default one is created automatically.
 	Session *session.SessionHistory
@@ -155,6 +158,7 @@ func New(args Args) *Agent {
 	if args.Session == nil {
 		args.Session = session.New("", args.RepoDir)
 	}
+	args.Session.Debug = args.Debug
 	return &Agent{
 		args:    args,
 		session: args.Session,

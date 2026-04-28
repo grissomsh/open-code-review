@@ -31,6 +31,7 @@ type SessionHistory struct {
 	RepoDir   string
 	StartTime time.Time
 	EndTime   time.Time
+	Debug     bool
 	FileSessions map[string]*FileSession
 }
 
@@ -107,8 +108,11 @@ func (sh *SessionHistory) GetOrCreateFileSession(filePath string) *FileSession {
 func (sh *SessionHistory) Finalize() {
 	sh.mu.Lock()
 	sh.EndTime = time.Now()
+	debug := sh.Debug
 	sh.mu.Unlock()
-	sh.writeDebugDump()
+	if debug {
+		sh.writeDebugDump()
+	}
 }
 
 // --- Debug Dump ---

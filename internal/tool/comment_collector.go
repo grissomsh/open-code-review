@@ -21,11 +21,11 @@ func NewCommentCollector() *CommentCollector {
 // Add appends a comment to the collector.
 func (c *CommentCollector) Add(cm model.LlmComment) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.comments = append(c.comments, cm)
-	c.mu.Unlock()
 }
 
-// Comments returns a copy of all collected comments.
+// Comments returns all collected comments.
 func (c *CommentCollector) Comments() []model.LlmComment {
 	c.mu.Lock()
 	defer c.mu.Unlock()

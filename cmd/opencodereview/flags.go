@@ -118,7 +118,7 @@ func parseReviewFlags(args []string) (reviewOptions, error) {
 	a.StringVar(&opts.to, "to", "", "target ref to end diff at (e.g., 'feature-branch')")
 	a.StringVarP(&opts.commit, "commit", "c", "", "single commit hash or tag to review (vs its parent)")
 	a.StringVarP(&opts.outputFormat, "format", "f", "text", "output format: text or json")
-	a.IntVar(&opts.concurrency, "concurrency", 4, "max concurrent file reviews")
+	a.IntVar(&opts.concurrency, "concurrency", 8, "max concurrent file reviews")
 	a.IntVar(&opts.perFileTimeout, "timeout", 10, "per-file timeout in minutes")
 
 	if err := a.Parse(args); err != nil {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/open-code-review/open-code-review/internal/agent"
 	"github.com/open-code-review/open-code-review/internal/config/rules"
+	"github.com/open-code-review/open-code-review/internal/diff"
 	"github.com/open-code-review/open-code-review/internal/config/template"
 	"github.com/open-code-review/open-code-review/internal/config/toolsconfig"
 	"github.com/open-code-review/open-code-review/internal/llm"
@@ -57,12 +58,12 @@ func runReview(args []string) error {
 		return fmt.Errorf("resolve repo: %w", err)
 	}
 
-	cfg, err := LoadAppConfig(defaultConfigPath())
+	cfg, err := LoadMergedConfig(defaultConfigPath())
 	if err != nil {
 		return fmt.Errorf("load app config: %w", err)
 	}
 	if cfg == nil || cfg.Llm.URL == "" || cfg.Llm.AuthToken == "" {
-		return fmt.Errorf("llm.url and llm.auth_token are required in $HOME/.open-code-review/config.json")
+		return fmt.Errorf("llm.url and llm.auth_token are required in $HOME/.open-code-review/config.json, or set OCR_LLM_URL and OCR_LLM_TOKEN environment variables")
 	}
 	model := cfg.Llm.Model
 	tpl.ApplyLanguage(cfg.Language)
@@ -111,6 +112,9 @@ func runReview(args []string) error {
 		telemetry.SetAttr(span, "error", err.Error())
 		return fmt.Errorf("review failed: %w", err)
 	}
+
+	// Resolve line numbers by matching existing_code against diff hunks.
+	comments = diff.ResolveLineNumbers(comments, ag.Diffs())
 
 	// Record summary metrics (files_reviewed is refined by agent.Run).
 	duration := time.Since(startTime)

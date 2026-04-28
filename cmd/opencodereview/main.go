@@ -8,10 +8,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/open-code-review/open-code-review/internal/llm"
 	"github.com/open-code-review/open-code-review/internal/telemetry"
 )
 
 func main() {
+	llm.InitEmbeddedLoader()
+
 	ctx := context.Background()
 	if telemetry.Init(ctx) {
 		defer telemetry.ShutdownWithTimeout(ctx, 5*time.Second)

@@ -11,6 +11,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -274,8 +275,8 @@ func SetModelEncoding(modelName string) error {
 func ensureTokenizer() {
 	tokenizerOnce.Do(func() {
 		if err := SetModelEncoding(""); err != nil {
-			// Fallback should not happen as cl100k_base is built-in
-			panic(err)
+			// Network unavailable or encoding load failed — fall back to byte estimation in CountTokens.
+			fmt.Fprintf(os.Stderr, "[ocr] WARNING: tiktoken initialization failed (%v), using byte-based estimation\n", err)
 		}
 	})
 }

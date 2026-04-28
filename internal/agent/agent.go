@@ -210,6 +210,11 @@ func (a *Agent) FilesReviewed() int64 {
 	return int64(len(a.diffs))
 }
 
+// Diffs returns the parsed diffs loaded by the agent.
+func (a *Agent) Diffs() []model.Diff {
+	return a.diffs
+}
+
 // TotalTokensUsed returns the accumulated total tokens from all LLM calls.
 func (a *Agent) TotalTokensUsed() int64 {
 	return atomic.LoadInt64(&a.totalTokensUsed)
@@ -265,8 +270,6 @@ func (a *Agent) dispatchSubtasks(ctx context.Context) ([]model.LlmComment, error
 	}()
 
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var allComments []model.LlmComment
 
 	concurrency := a.args.MaxConcurrency
 	if concurrency <= 0 {
@@ -293,24 +296,25 @@ func (a *Agent) dispatchSubtasks(ctx context.Context) ([]model.LlmComment, error
 				fileCtx = ctx
 			}
 
-			fileComments, err := a.executeSubtask(fileCtx, d)
-			if err != nil {
+			if err := a.executeSubtask(fileCtx, d); err != nil {
 				fmt.Printf("[ocr] Subtask error for %s: %v\n", d.NewPath, err)
 				telemetry.ErrorEvent(fileCtx, "subtask.error", err,
 					telemetry.AnyToAttr("file.path", d.NewPath))
 			}
-			mu.Lock()
-			allComments = append(allComments, fileComments...)
-			mu.Unlock()
 		}(a.diffs[i])
 	}
 
 	wg.Wait()
-	return allComments, nil
+
+	// All subtasks finished — collect comments from the global collector once.
+	if a.args.CommentWorkerPool != nil {
+		a.args.CommentWorkerPool.Await()
+	}
+	return a.args.CommentCollector.Comments(), nil
 }
 
 // executeSubtask performs the Plan Phase + Main Loop for a single file.
-func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) ([]model.LlmComment, error) {
+func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) error {
 	ctx, span := telemetry.StartSpan(ctx, "subtask.execute."+d.NewPath)
 	defer span.End()
 	telemetry.SetAttr(span, "file.path", d.NewPath)
@@ -319,7 +323,7 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) ([]model.LlmCo
 	telemetry.SetAttr(span, "lines.deleted", d.Deletions)
 
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return ctx.Err()
 	}
 
 	newPath := d.NewPath
@@ -353,7 +357,7 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) ([]model.LlmCo
 
 	// Phase 2: Main task loop
 	if len(a.args.Template.MainTask.Messages) == 0 {
-		return nil, fmt.Errorf("main_task.messages is empty in template")
+		return fmt.Errorf("main_task.messages is empty in template")
 	}
 
 	rawMsgs := a.args.Template.MainTask.Messages
@@ -381,7 +385,7 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) ([]model.LlmCo
 			telemetry.AnyToAttr("file.path", newPath),
 			telemetry.AnyToAttr("tokens", tokenCount),
 			telemetry.AnyToAttr("threshold", a.args.Template.TokenWarningThreshold))
-		return nil, nil
+		return nil
 	}
 
 	return a.performLlmCodeReview(ctx, messages, newPath)
@@ -499,13 +503,13 @@ func formatToolDefs(toolDefs []llm.ToolDef) string {
 // performLlmCodeReview drives the main LLM conversation loop for a single file.
 // It sends messages with tool definitions, handles tool calls returned by the model,
 // and collects review comments until task_done is called or limits are reached.
-func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message, newPath string) ([]model.LlmComment, error) {
+func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message, newPath string) error {
 	toolReqCount := a.args.Template.MaxToolRequestTimes
 
 	for toolReqCount > 0 {
 		select {
 		case <-ctx.Done():
-			return diff.ResolveLineNumbers(a.collectPendingComments(), a.diffs), ctx.Err()
+			return ctx.Err()
 		default:
 		}
 
@@ -524,7 +528,7 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 		if err != nil {
 			rec.SetError(err, duration)
 			telemetry.RecordLLMRequest(ctx, a.args.Model, duration, 0, "error")
-			return diff.ResolveLineNumbers(a.collectPendingComments(), a.diffs), fmt.Errorf("LLM completion error: %w", err)
+			return fmt.Errorf("LLM completion error: %w", err)
 		}
 		rec.SetResponse(resp, duration)
 		// Record LLM metrics with token info from API response usage field.
@@ -596,8 +600,7 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 		fmt.Printf("[ocr] Max tool requests reached for %s.\n", newPath)
 	}
 
-	comments := a.args.CommentCollector.Comments()
-	return diff.ResolveLineNumbers(comments, a.diffs), nil
+	return nil
 }
 
 // executeToolCall executes a single tool call from the LLM response and records

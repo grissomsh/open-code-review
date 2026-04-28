@@ -23,12 +23,12 @@ func runLLM(args []string) error {
 }
 
 func runLLMTest() error {
-	cfg, err := LoadAppConfig(defaultConfigPath())
+	cfg, err := LoadMergedConfig(defaultConfigPath())
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 	if cfg == nil || cfg.Llm.URL == "" || cfg.Llm.AuthToken == "" {
-		return fmt.Errorf("llm.url and llm.auth_token are required in %s", defaultConfigPath())
+		return fmt.Errorf("llm.url and llm.auth_token are required in %s, or set OCR_LLM_URL and OCR_LLM_TOKEN environment variables", defaultConfigPath())
 	}
 
 	task, err := testconnection.LoadDefault()

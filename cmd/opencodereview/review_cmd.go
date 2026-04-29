@@ -122,7 +122,7 @@ func runReview(args []string) error {
 	if len(comments) > 0 {
 		telemetry.RecordCommentsGenerated(ctx, int64(len(comments)))
 	}
-	telemetry.PrintTraceSummary(ag.FilesReviewed(), int64(len(comments)), ag.TotalTokensUsed(), duration)
+	telemetry.PrintTraceSummary(ag.FilesReviewed(), int64(len(comments)), ag.TotalInputTokens(), ag.TotalOutputTokens(), ag.TotalTokensUsed(), duration)
 
 	if opts.outputFormat == "json" {
 		return outputJSON(comments)

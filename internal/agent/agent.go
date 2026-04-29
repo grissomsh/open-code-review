@@ -94,7 +94,9 @@ type Agent struct {
 	totalDeletions  int64
 	currentDate     string
 	session         *session.SessionHistory
-	totalTokensUsed int64 // accumulated tokens from all LLM calls, accessed atomically
+	totalTokensUsed     int64 // accumulated total tokens from all LLM calls, accessed atomically
+	totalInputTokens    int64 // accumulated input/prompt tokens, accessed atomically
+	totalOutputTokens   int64 // accumulated completion tokens, accessed atomically
 }
 
 // CommentWorkerPool manages a fixed-size pool of workers dedicated to
@@ -223,6 +225,16 @@ func (a *Agent) Diffs() []model.Diff {
 // TotalTokensUsed returns the accumulated total tokens from all LLM calls.
 func (a *Agent) TotalTokensUsed() int64 {
 	return atomic.LoadInt64(&a.totalTokensUsed)
+}
+
+// TotalInputTokens returns the accumulated input/prompt tokens from all LLM calls.
+func (a *Agent) TotalInputTokens() int64 {
+	return atomic.LoadInt64(&a.totalInputTokens)
+}
+
+// TotalOutputTokens returns the accumulated completion tokens from all LLM calls.
+func (a *Agent) TotalOutputTokens() int64 {
+	return atomic.LoadInt64(&a.totalOutputTokens)
 }
 
 // loadDiffs populates the diff-related fields.
@@ -460,6 +472,8 @@ func (a *Agent) executePlanPhase(ctx context.Context, newPath, rawDiff, changeFi
 	rec.SetResponse(resp, time.Since(startTime))
 	if resp.Usage != nil {
 		atomic.AddInt64(&a.totalTokensUsed, int64(resp.Usage.TotalTokens))
+		atomic.AddInt64(&a.totalInputTokens, int64(resp.Usage.PromptTokens+resp.Usage.CacheReadTokens))
+		atomic.AddInt64(&a.totalOutputTokens, int64(resp.Usage.CompletionTokens+resp.Usage.CacheWriteTokens))
 	}
 	fmt.Printf("[ocr] Plan completed for %s\n", newPath)
 	return resp.Content(), nil
@@ -538,6 +552,8 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 		totalTokens := int64(0)
 		if resp.Usage != nil {
 			totalTokens = resp.Usage.TotalTokens
+			atomic.AddInt64(&a.totalInputTokens, int64(resp.Usage.PromptTokens+resp.Usage.CacheReadTokens))
+			atomic.AddInt64(&a.totalOutputTokens, int64(resp.Usage.CompletionTokens+resp.Usage.CacheWriteTokens))
 		}
 		telemetry.RecordLLMRequest(ctx, a.args.Model, duration, totalTokens, "ok")
 		atomic.AddInt64(&a.totalTokensUsed, totalTokens)
@@ -764,6 +780,8 @@ func (a *Agent) compressAndRecord(msgs []llm.Message, filePath string) []llm.Mes
 	rec.SetResponse(resp, duration)
 	if resp.Usage != nil {
 		atomic.AddInt64(&a.totalTokensUsed, int64(resp.Usage.TotalTokens))
+		atomic.AddInt64(&a.totalInputTokens, int64(resp.Usage.PromptTokens+resp.Usage.CacheReadTokens))
+		atomic.AddInt64(&a.totalOutputTokens, int64(resp.Usage.CompletionTokens+resp.Usage.CacheWriteTokens))
 	}
 
 	summary := resp.Content()

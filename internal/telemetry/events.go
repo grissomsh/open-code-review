@@ -60,9 +60,14 @@ func FormatDuration(dur time.Duration) string {
 }
 
 // PrintTraceSummary prints a one-line summary of the review to stdout.
-func PrintTraceSummary(filesReviewed, commentsGenerated int64, totalTokens int64, duration time.Duration) {
-	fmt.Printf("[ocr] Summary: %d file(s) reviewed, %d comment(s), ~%d token(s) used, %s elapsed\n",
-		filesReviewed, commentsGenerated, totalTokens, FormatDuration(duration))
+func PrintTraceSummary(filesReviewed, commentsGenerated int64, inputTokens, outputTokens, totalTokens int64, duration time.Duration) {
+	if inputTokens > 0 || outputTokens > 0 {
+		fmt.Printf("[ocr] Summary: %d file(s) reviewed, %d comment(s), ~%d token(s) used (input: ~%d, output: ~%d), %s elapsed\n",
+			filesReviewed, commentsGenerated, totalTokens, inputTokens, outputTokens, FormatDuration(duration))
+	} else {
+		fmt.Printf("[ocr] Summary: %d file(s) reviewed, %d comment(s), ~%d token(s) used, %s elapsed\n",
+			filesReviewed, commentsGenerated, totalTokens, FormatDuration(duration))
+	}
 }
 
 // PrintToolCallStarted prints a line when a tool begins execution.

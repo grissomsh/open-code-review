@@ -7,7 +7,35 @@ import (
 
 // UsageInfo holds token usage extracted from an LLM API response.
 type UsageInfo struct {
-	TotalTokens int64 `json:"total_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	CacheReadTokens  int64 `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
+}
+
+var promptTokensPaths = []string{
+	"usage.prompt_tokens",        // OpenAI standard
+	"prompt_tokens",              // flat at root
+	"data.usage.prompt_tokens",   // wrapped in data layer
+}
+
+var completionTokensPaths = []string{
+	"usage.completion_tokens",      // OpenAI standard
+	"completion_tokens",            // flat at root
+	"data.usage.completion_tokens", // wrapped in data layer
+}
+
+var cacheReadTokensPaths = []string{
+	"usage.cache_read_input_tokens",   // Anthropic
+	"cache_read_input_tokens",          // flat at root
+	"usage.prompt_tokens_details.cache_tokens_hit", // some providers
+	"usage.prompt_tokens_details.cache_tokens",     // some providers
+}
+
+var cacheWriteTokensPaths = []string{
+	"usage.cache_creation_input_tokens",   // Anthropic / proxy
+	"cache_creation_input_tokens",          // flat at root
 }
 
 // totalTokensPaths is an ordered list of JSON paths to try when extracting
@@ -20,18 +48,37 @@ var totalTokensPaths = []string{
 }
 
 // resolveUsage parses raw JSON bytes into a map and extracts token usage
-// by probing totalTokensPaths sequentially. Returns nil if no path matches.
+// by probing configured paths sequentially. Returns nil if no total_tokens found.
 func resolveUsage(raw []byte) *UsageInfo {
 	var rawBody map[string]any
 	if err := json.Unmarshal(raw, &rawBody); err != nil {
 		return nil
 	}
 
-	total, ok := probePath(rawBody, totalTokensPaths)
-	if !ok {
+	total, hasAny := probePath(rawBody, totalTokensPaths)
+	prompt, _ := probePath(rawBody, promptTokensPaths)
+	completion, _ := probePath(rawBody, completionTokensPaths)
+	cacheRead, _ := probePath(rawBody, cacheReadTokensPaths)
+	cacheWrite, _ := probePath(rawBody, cacheWriteTokensPaths)
+
+	if !hasAny && prompt == 0 && completion == 0 {
 		return nil
 	}
-	return &UsageInfo{TotalTokens: total}
+
+	ui := &UsageInfo{
+		TotalTokens:      total,
+		PromptTokens:     prompt,
+		CompletionTokens: completion,
+		CacheReadTokens:  cacheRead,
+		CacheWriteTokens: cacheWrite,
+	}
+
+	// If TotalTokens wasn't explicitly available but we have prompt+completion, compute it.
+	if total == 0 && (prompt > 0 || completion > 0) {
+		ui.TotalTokens = prompt + completion + cacheRead + cacheWrite
+	}
+
+	return ui
 }
 
 // probePath walks through each candidate path in order, returning the first

@@ -1,43 +1,62 @@
 # OpenCodeReview
 
-AI-powered code review CLI tool built in Go. OpenCodeReview reads git diffs, sends changed files to a configurable LLM (via OpenAI-compatible API), and generates structured code review comments — acting as an autonomous AI reviewer that can read your full project context, not just the diff.
+一个基于 Go 开发的 AI 代码审查 CLI 工具。OpenCodeReview 读取 Git Diff，将变更文件通过 OpenAI 兼容 API 发送给可配置的 LLM，生成结构化的代码审查评论 —— 它不仅分析 diff 表面变更，还能自主阅读项目上下文进行深度审查。
 
-## Features
+## 核心特性
 
-- **Three review modes**: workspace changes (default), branch range (`--from` / `--to`), single commit (`--commit` / `-c`)
-- **Context-aware reviews**: the LLM agent can read arbitrary files, search code with `git grep`, and inspect diffs — going beyond surface-level diff analysis
-- **Plan phase**: for large changes (>50 lines), the agent first produces a risk analysis plan before diving into detailed review
-- **Memory compression**: automatically summarizes conversation context when token count exceeds threshold (~50K tokens) so long reviews don't run out of context
-- **Concurrent execution**: each file reviewed independently in parallel (configurable concurrency, default 4 workers)
-- **Customizable rules**: glob-based system rules let you apply different review standards per language or path pattern
-- **Multiple output formats**: text (default) or JSON
-- **Any OpenAI-compatible LLM**: works with OpenAI, Claude (via compatible endpoint), local models, etc.
+- **三种审查模式**：工作区变更（默认）、分支范围（`--from` / `--to`）、单次提交（`--commit`）
+- **上下文感知**：LLM Agent 可以读取任意文件、使用 `git grep` 搜索代码、查看 diff 差异 —— 超越表面的行级分析
+- **Plan 阶段**：当文件变更超过阈值（默认 50 行），Agent 先产出风险分析计划，识别严重程度和建议操作
+- **记忆压缩**：对话 token 数超过阈值（~50K）时自动压缩历史上下文，防止长会话超出模型窗口
+- **并发执行**：每个文件独立并行审查（可配置并发数，默认 4 worker）
+- **异步评论处理**：CommentWorkerPool 对 review comment 进行后处理（行号追踪、建议验证等），不阻塞主循环
+- **自定义规则**：基于 glob 的系统规则，按语言或路径应用不同的审查标准
+- **完整可观测性**：内置 OpenTelemetry，支持 OTLP gRPC 和 stdout 导出器
+- **兼容任何 LLM**：支持 OpenAI、Claude（兼容端点）、本地模型等
 
-## Installation
+## 安装
 
-### Build from Source
+### 从源码构建
 
-Requires [Go](https://go.dev/) 1.24+.
+需要 [Go](https://go.dev/) 1.25+。
 
 ```bash
 git clone https://github.com/open-code-review/open-code-review.git
 cd open-code-review
-make        # builds binary at ./bin/opencodereview
+make        # 编译到 ./dist/opencodereview
 ```
 
-Or build directly:
+或直接构建：
 
 ```bash
 go build -o bin/opencodereview ./cmd/opencodereview
 ```
 
-Add `bin/` to your `$PATH` or copy the binary somewhere accessible.
+### 跨平台构建
 
-## Quick Start
+Makefile 提供了跨平台构建目标：
 
-### 1. Configure your LLM
+```bash
+make build-linux-amd64
+make build-linux-arm64
+make build-darwin-amd64
+make build-darwin-arm64
+make build-all          # 构建所有平台
+```
 
-OpenCodeReview connects to any OpenAI-compatible API endpoint. Set up your credentials:
+将生成的 binary 加入 `$PATH`：
+
+```bash
+cp dist/opencodereview /usr/local/bin/ocr
+```
+
+## 快速开始
+
+### 1. 配置 LLM
+
+OpenCodeReview 支持连接任何 OpenAI 兼容的 API 端点。有两种配置方式：
+
+**配置文件**（推荐）：
 
 ```bash
 ocr config set llm.url https://your-api-endpoint/v1/chat/completions
@@ -45,87 +64,86 @@ ocr config set llm.auth_token your-api-key-here
 ocr config set llm.model claude-opus-4-6
 ```
 
-Configuration is stored at `~/.open-code-review/config.json`.
+**环境变量**：
 
-### 2. Test connectivity
+```bash
+export OCR_LLM_URL=https://your-api-endpoint/v1/chat/completions
+export OCR_LLM_TOKEN=your-api-key-here
+```
+
+配置存储在 `~/.open-code-review/config.json`。
+
+### 2. 测试连通性
 
 ```bash
 ocr llm test
 ```
 
-### 3. Run a review
+### 3. 运行审查
 
-Navigate to any git repository and run:
+进入任意 Git 仓库目录并运行：
 
 ```bash
-# Review all staged, unstaged, and untracked changes
+# 审查所有已暂存、未暂存和未跟踪的变更
 ocr review
 
-# Review differences between two branches
+# 审查两个分支之间的差异
 ocr review --from main --to feature-branch
 
-# Review a specific commit
+# 审查特定提交
 ocr review --commit abc123
 ```
 
-## Usage
+## 使用方式
 
-### Commands
+### 命令
 
-| Command | Description |
-|---------|-------------|
-| `ocr review` / `ocr r` | Start a code review session |
-| `ocr config set <key> <value>` | Manage user configuration |
-| `ocr llm test` | Test LLM connectivity |
-| `ocr version` | Show version information |
+| 命令 | 描述 |
+|------|------|
+| `ocr review` / `ocr r` | 启动代码审查 |
+| `ocr config set <key> <value>` | 管理用户配置 |
+| `ocr llm test` | 测试 LLM 连通性 |
+| `ocr version` | 显示版本信息 |
 
-### Review Flags
+### 审查参数
 
-| Flag | Shorthand | Default | Description |
-|------|-----------|---------|-------------|
-| `--repo` | | current dir | Root directory of the git repository |
-| `--from` | | | Source ref to start diff from (e.g., `main`) |
-| `--to` | | | Target ref to end diff at (e.g., `feature-branch`) |
-| `--commit` | `-c` | | Single commit hash to review (vs its parent) |
-| `--format` | `-f` | `text` | Output format: `text` or `json` |
-| `--concurrency` | | `4` | Max concurrent file reviews |
-| `--timeout` | | `10` | Per-file timeout in minutes |
-| `--rule` | | | Path to JSON file with custom system review rules |
-| `--tools` | | embedded | Path to JSON tools config file (uses embedded defaults if omitted) |
+| 参数 | 简写 | 默认值 | 描述 |
+|------|------|--------|------|
+| `--repo` | | 当前目录 | Git 仓库根目录 |
+| `--from` | | | 起始引用（如 `main`） |
+| `--to` | | | 目标引用（如 `feature-branch`） |
+| `--commit` | `-c` | | 要审查的单次提交（对比其父提交） |
+| `--format` | `-f` | `text` | 输出格式：`text` 或 `json` |
+| `--concurrency` | | `4` | 最大并发文件审查数 |
+| `--timeout` | | `10` | 单文件超时时间（分钟） |
+| `--rule` | | | 自定义系统规则的 JSON 文件路径 |
+| `--tools` | | 内嵌默认 | 工具定义的 JSON 文件路径（省略则使用内嵌默认值） |
 
-### Review Modes
+### 审查模式详解
 
-**Workspace mode** (no flags): reviews all staged, unstaged, and untracked changes in the current working directory.
+**工作区模式**（无参数）：审查当前工作区所有已暂存、未暂存和未跟踪的变更。
 
 ```bash
 ocr review
 ```
 
-**Branch range mode**: reviews changes between two git refs using merge-base.
+**分支范围模式**：使用 merge-base 计算两个 git 引用之间的差异。
 
 ```bash
 ocr review --from main --to dev
 ```
 
-**Single commit mode**: reviews a specific commit against its parent.
+**单次提交模式**：对比某次提交与其父提交的差异。
 
 ```bash
 ocr review --commit abc123
 ```
 
-## Configuration
+## 配置
 
-User config lives at `~/.open-code-review/config.json`. Supported keys:
+### 配置文件
 
-| Key | Description | Example |
-|-----|-------------|---------|
-| `llm.provider` | Provider name (informational) | `openai`, `claude` |
-| `llm.url` | OpenAI-compatible API endpoint URL | `https://api.openai.com/v1/chat/completions` |
-| `llm.auth_token` | API key / authentication token | `sk-xxx...` |
-| `llm.model` | Model identifier | `gpt-4o`, `claude-opus-4-6` |
-| `language` | Preferred response language | `zh-CN`, `en-US` |
-
-Example config:
+位于 `~/.open-code-review/config.json`：
 
 ```json
 {
@@ -139,69 +157,107 @@ Example config:
 }
 ```
 
-## How It Works
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| `llm.provider` | 提供者名称（信息用途） | `openai`, `claude` |
+| `llm.url` | OpenAI 兼容 API 端点 | `https://api.openai.com/v1/chat/completions` |
+| `llm.auth_token` | API Key / 认证 Token | `sk-xxx...` |
+| `llm.model` | 模型标识 | `gpt-4o`, `claude-opus-4-6` |
+| `language` | 偏好响应语言 | `zh-CN`, `en-US` |
+
+### 环境变量
+
+与配置文件等效的环境变量：
+
+| 环境变量 | 对应配置字段 |
+|----------|--------------|
+| `OCR_LLM_URL` | `llm.url` |
+| `OCR_LLM_TOKEN` | `llm.auth_token` |
+
+## 工作原理
 
 ```
-┌─────────────┐
-│  Load Diff   │ Parse git unified diffs into structured per-file changes
-└──────┬──────┘
+┌──────────────┐
+│  加载 Diff    │ 解析 git unified diff 为结构化文件变更
+└──────┬───────┘
        ▼
-┌─────────────┐
-│ Plan Phase   │ For large files (>50 lines changed), LLM produces a risk
-│ (optional)   │ analysis plan identifying severity and recommended actions
-└──────┬──────┘
+┌──────────────┐
+│ Plan 阶段     │ 大变更文件（>50 行）先由 LLM 产出风险分析计划，
+│ （可选）      │ 标注严重级别和建议操作；小变更跳过此步
+└──────┬───────┘
        ▼
-┌─────────────┐
-│ Main Loop    │ Multi-turn LLM conversation — the agent calls tools to read
-│              │ files, search code, inspect diffs, and submit review comments
-└──────┬──────┘
+┌──────────────┐
+│ 主循环        │ 多轮 LLM 对话 —— Agent 调用工具读取文件、搜索代码、
+│              │ 检查 diff 并提交审查评论
+└──────┬───────┘
        ▼
-┌─────────────┐     ┌─────────────┐
-│  Compress    │ When context exceeds ~50K tokens, prior conversation is
-│  Memory      │ summarized to stay within limits
-└──────┬──────┘
+┌──────────────┐
+│ 记忆压缩      │ 当上下文超 ~50K token 时，自动压缩历史对话
+└──────┬───────┘
        ▼
-┌─────────────┐
-│  Output      │ Collected comments rendered as text or JSON
-└─────────────┘
+┌──────────────┐     ┌──────────────┐
+│   输出        │ 收集的评论以 text 或 json 格式渲染
+└──────────────┘
 ```
 
-Each changed file is reviewed as an independent subtask running concurrently (configurable semaphore). Full session history (requests, responses, tool calls, durations, token estimates) is saved to `<repo>/temp/ocr-session-*.json` for debugging.
+每个变更文件作为独立子任务并发执行。完整的会话历史（请求、响应、工具调用、耗时、token 估算）保存至 `<仓库>/temp/ocr-session-*.json`，方便调试。
 
-### LLM Agent Tools
+## Agent 工具列表
 
-During a review, the AI agent has access to these tools:
+审查过程中，LLM Agent 可以使用以下工具：
 
-| Tool | Description |
-|------|-------------|
-| `file_read` | Read file contents at a given path (with optional line range, max 500 lines per call) |
-| `file_find` | Find files by name pattern across the repository (skips node_modules, vendor, .idea, etc.) |
-| `code_search` | Search code content using `git grep` (supports regex, case-insensitive, file-pattern scoping) |
-| `file_read_diff` | Read the diff for a specific file |
-| `code_comment` | Submit a review comment with suggestion code, line ranges, and reasoning |
-| `task_done` | Signal that the review for a file is complete |
+| 工具 | 描述 |
+|------|------|
+| `file_read` | 读取指定路径的文件内容（支持行范围，单次最多 500 行） |
+| `file_find` | 按名称模式在仓库中查找文件（跳过 node_modules、vendor、.idea 等） |
+| `code_search` | 使用 `git grep` 搜索代码内容（支持正则、大小写忽略、文件模式过滤） |
+| `file_read_diff` | 读取指定文件的 diff |
+| `code_comment` | 提交审查评论，包含建议代码、行范围和理由 |
+| `task_done` | 标记该文件的审查完成 |
 
-## Project Structure
+## 可调参数
+
+以下参数定义了 Agent 的行为边界，可在运行时调整（部分通过环境变量）：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `PLAN_MODE_LINE_THRESHOLD` | 50 | 触发 Plan 阶段的文件变更行数阈值 |
+| `TOKEN_WARNING_THRESHOLD` | 50000 | 触发记忆压缩的 token 数量阈值 |
+| `MAX_TOOL_REQUEST_TIMES` | 20 | 每个文件的最大工具调用次数 |
+| `TOOL_REQUEST_WAIT_TIME_MS` | 10000 | 工具调用等待时间（毫秒） |
+| `MAX_SUBTASK_EXECUTION_TIME_MINUTES` | 5 | 单个子任务最长执行时间（分钟） |
+
+## 可观测性
+
+OpenCodeReview 内置 [OpenTelemetry](https://opentelemetry.io/) 集成，提供全链路监控和指标采集：
+
+- **Traces**：记录每次审查会话的完整生命周期，包括 diff 加载、plan 阶段、主循环迭代、工具调用和输出生成
+- **Metrics**：统计审查持续时间、生成的评论数、token 消耗等关键指标
+- **Exporter**：支持 OTLP gRPC 导出器和 stdout 导出器，可对接 Jaeger、Grafana Tempo 等后端
+
+## 项目结构
 
 ```
-├── cmd/opencodereview/   # CLI entry point and command dispatch
-│   ├── main.go         # Application entry point
-│   ├── review_cmd.go   # Core review orchestration
-│   ├── flags.go        # Flag parsing
-│   ├── config_cmd.go   # Config management
-│   ├── llm_cmd.go      # LLM utility commands
-│   └── ...
+├── cmd/opencodereview/       # CLI 入口和命令分发
+│   ├── main.go               # 应用入口
+│   ├── review_cmd.go         # 审查编排核心
+│   ├── flags.go              # 参数解析
+│   ├── config_cmd.go         # 配置管理子命令
+│   ├── llm_cmd.go            # LLM 工具命令
+│   ├── output.go             # 输出格式化（text/json）
+│   └── git.go                # Git 辅助函数
+│
 ├── internal/
-│   ├── agent/          # Review pipeline orchestrator (diff loading → plan → main loop → memory compression)
-│   ├── config/         # Templates, rules, tool definitions
-│   ├── diff/           # Git diff parsing and resolution
-│   ├── llm/            # OpenAI-compatible LLM client with retry/backoff
-│   ├── model/          # Data models
-│   ├── session/        # Session history tracking
-│   └── tool/           # Tool implementations (file_read, code_search, etc.)
-└── pkg/                # Public package exports
+│   ├── agent/agent.go        # Agent 编排器：diff 加载 → plan → 主循环 → 记忆压缩
+│   ├── config/               # 内嵌配置模板、规则、工具定义
+│   ├── diff/                 # Git diff 解析和行号映射
+│   ├── llm/                  # OpenAI 兼容 LLM HTTP 客户端
+│   ├── model/                # 数据模型
+│   ├── session/              # 会话历史追踪
+│   ├── telemetry/            # OpenTelemetry 集成
+│   └── tool/                 # 工具实现（file_read、code_search、code_comment 等）
+│
+├── pkg/                      # 公共包导出
+├── Makefile                  # 构建系统（含跨平台目标）
+└── go.mod                    # Go 模块依赖
 ```
-
-## License
-
-See [LICENSE](LICENSE) for details.

@@ -286,6 +286,12 @@ func (a *Agent) dispatchSubtasks(ctx context.Context) ([]model.LlmComment, error
 		telemetry.RecordReviewDuration(ctx, time.Since(startTime))
 	}()
 
+	// Pre-filter: discard diffs whose diff content alone exceeds 80% of the token threshold.
+	a.diffs = a.filterLargeDiffs(a.diffs)
+	if len(a.diffs) == 0 {
+		return nil, fmt.Errorf("all diffs filtered out by token size")
+	}
+
 	var wg sync.WaitGroup
 
 	concurrency := a.args.MaxConcurrency
@@ -442,6 +448,35 @@ func (a *Agent) resolveSystemRule(path string) string {
 		return ""
 	}
 	return a.args.SystemRule.Resolve(path)
+}
+
+// filterLargeDiffs drops diffs whose diff content alone consumes more than 80% of the token threshold.
+// This prevents obviously oversized files from triggering API errors in the plan phase.
+func (a *Agent) filterLargeDiffs(diffs []model.Diff) []model.Diff {
+	threshold := a.args.Template.TokenWarningThreshold
+	if threshold <= 0 {
+		return diffs
+	}
+
+	limit := float64(threshold) * 0.8
+	var kept []model.Diff
+	skipped := 0
+
+	for _, d := range diffs {
+		tokens := llm.CountTokens(d.Diff)
+		if float64(tokens) > limit {
+			fmt.Printf("[ocr] Skipping %s (~%d tokens exceeds 80%% of threshold %d)\n",
+				d.NewPath, tokens, threshold)
+			skipped++
+			continue
+		}
+		kept = append(kept, d)
+	}
+
+	if skipped > 0 {
+		fmt.Printf("[ocr] Pre-filtered %d file(s) exceeding 80%% token threshold\n", skipped)
+	}
+	return kept
 }
 
 // executePlanPhase runs the plan task for a single file, sending template messages

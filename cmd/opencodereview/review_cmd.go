@@ -27,6 +27,10 @@ func runReview(args []string) error {
 		return nil
 	}
 
+	if err := requireGitRepo(opts.repoDir); err != nil {
+		return err
+	}
+
 	tpl, err := template.LoadDefault()
 	if err != nil {
 		return fmt.Errorf("load default template: %w", err)
@@ -153,6 +157,19 @@ func resolveRepoDir(input string) (string, error) {
 		return "", fmt.Errorf("%s is not a git repository", absPath)
 	}
 	return absPath, nil
+}
+
+// requireGitRepo validates that the given directory is part of a git repository.
+func requireGitRepo(dir string) error {
+	repoDir, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+	out, err := runGitCmd(repoDir, "rev-parse", "--git-dir")
+	if err != nil || len(out) == 0 {
+		return fmt.Errorf("%s is not a git repository, code review requires a valid git repository", repoDir)
+	}
+	return nil
 }
 
 func buildToolRegistry(collector *tool.CommentCollector, fr *tool.FileReader, diffMap map[string]string) tool.Registry {

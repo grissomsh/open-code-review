@@ -132,8 +132,32 @@ func buildDiffLines(comment model.LlmComment) []suggestdiff.DiffLine {
 	return suggestdiff.ComputeLineDiff(oldLines, newLines)
 }
 
+type jsonOutput struct {
+	Status   string            `json:"status"`
+	Message  string            `json:"message,omitempty"`
+	Comments []model.LlmComment `json:"comments"`
+}
+
 func outputJSON(comments []model.LlmComment) error {
+	out := jsonOutput{
+		Status:   "success",
+		Comments: comments,
+	}
+	if len(comments) == 0 {
+		out.Message = "No comments generated."
+	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(comments)
+	return enc.Encode(out)
+}
+
+func outputJSONNoFiles() error {
+	out := jsonOutput{
+		Status:   "skipped",
+		Message:  "No supported files changed.",
+		Comments: []model.LlmComment{},
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }

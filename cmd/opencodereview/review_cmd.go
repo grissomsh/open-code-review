@@ -133,6 +133,11 @@ func runReview(args []string) error {
 		telemetry.RecordCommentsGenerated(ctx, int64(len(comments)))
 	}
 
+	// If no files were reviewed (e.g. workspace has no changes), inform the caller in JSON mode.
+	if opts.outputFormat == "json" && len(comments) == 0 && ag.FilesReviewed() == 0 {
+		return outputJSONNoFiles()
+	}
+
 	telemetry.PrintTraceSummary(ag.FilesReviewed(), int64(len(comments)), ag.TotalInputTokens(), ag.TotalOutputTokens(), ag.TotalTokensUsed(), duration)
 
 	if opts.outputFormat == "json" {

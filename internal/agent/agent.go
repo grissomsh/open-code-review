@@ -189,7 +189,7 @@ func (a *Agent) Run(ctx context.Context) ([]model.LlmComment, error) {
 		fmt.Fprintln(stdout.Writer(), "[ocr] No supported files changed. Skipping review.")
 		telemetry.Event(ctx, "no.files.changed")
 		a.session.Finalize()
-		return nil, nil
+		return []model.LlmComment{}, nil
 	}
 
 	a.currentDate = time.Now().Format("2006-01-02 15:04")

@@ -141,9 +141,9 @@ func runReview(args []string) error {
 	telemetry.PrintTraceSummary(ag.FilesReviewed(), int64(len(comments)), ag.TotalInputTokens(), ag.TotalOutputTokens(), ag.TotalTokensUsed(), duration)
 
 	if opts.outputFormat == "json" {
-		return outputJSON(comments)
+		return outputJSONWithWarnings(comments, ag.Warnings())
 	}
-	outputText(comments)
+	outputTextWithWarnings(comments, ag.Warnings())
 
 	return nil
 }

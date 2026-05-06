@@ -497,7 +497,8 @@ func (c *Client) doRequestCtx(ctx context.Context, model string, req ChatRequest
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(bodyBytes))
+		detail := extractErrorMessage(bodyBytes)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, detail)
 	}
 
 	var apiResp struct {
@@ -516,4 +517,41 @@ func (c *Client) doRequestCtx(ctx context.Context, model string, req ChatRequest
 		Headers: resp.Header,
 		Usage:   resolveUsage(bodyBytes),
 	}, nil
+}
+
+// extractErrorMessage attempts to pull a human-readable error message from
+// a JSON API error response body. Falls back to truncating the raw body if
+// the structure is not recognised or decoding fails.
+func extractErrorMessage(body []byte) string {
+	type openAIError struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	type anthropicError struct {
+		Type  string `json:"type"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if len(body) == 0 {
+		return "(empty body)"
+	}
+
+	var oe openAIError
+	if err := json.Unmarshal(body, &oe); err == nil && oe.Error.Message != "" {
+		return oe.Error.Message
+	}
+	var ae anthropicError
+	if err := json.Unmarshal(body, &ae); err == nil && ae.Error.Message != "" {
+		return ae.Error.Message
+	}
+
+	// Truncate raw body to avoid excessively noisy errors.
+	bodyText := string(body)
+	if len(bodyText) > 512 {
+		bodyText = bodyText[:512] + "... (truncated)"
+	}
+	return bodyText
 }

@@ -2,6 +2,7 @@
 package diff
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -80,7 +81,9 @@ func finalizeDiff(d *model.Diff, repoDir string) {
 	}
 	fullPath := filepath.Join(repoDir, d.NewPath)
 	content, err := os.ReadFile(fullPath)
-	if err == nil {
-		d.NewFileContent = string(content)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[ocr] WARNING: cannot read file %s for review: %v\n", d.NewPath, err)
+		return
 	}
+	d.NewFileContent = string(content)
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/open-code-review/open-code-review/internal/agent"
 	"github.com/open-code-review/open-code-review/internal/model"
 	"github.com/open-code-review/open-code-review/internal/suggestdiff"
 )
@@ -17,6 +18,15 @@ func outputText(comments []model.LlmComment) {
 	}
 	for _, c := range comments {
 		renderComment(c)
+	}
+}
+
+func outputTextWithWarnings(comments []model.LlmComment, warnings []agent.AgentWarning) {
+	outputText(comments)
+	if len(warnings) > 0 {
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "[ocr] WARNING [%s] %s: %s\n", w.Type, w.File, w.Message)
+		}
 	}
 }
 
@@ -133,9 +143,10 @@ func buildDiffLines(comment model.LlmComment) []suggestdiff.DiffLine {
 }
 
 type jsonOutput struct {
-	Status   string            `json:"status"`
-	Message  string            `json:"message,omitempty"`
-	Comments []model.LlmComment `json:"comments"`
+	Status   string              `json:"status"`
+	Message  string              `json:"message,omitempty"`
+	Comments []model.LlmComment  `json:"comments"`
+	Warnings []agent.AgentWarning `json:"warnings,omitempty"`
 }
 
 func outputJSON(comments []model.LlmComment) error {
@@ -145,6 +156,23 @@ func outputJSON(comments []model.LlmComment) error {
 	}
 	if len(comments) == 0 {
 		out.Message = "No comments generated."
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
+}
+
+func outputJSONWithWarnings(comments []model.LlmComment, warnings []agent.AgentWarning) error {
+	out := jsonOutput{
+		Status:   "success",
+		Comments: comments,
+	}
+	if len(comments) == 0 {
+		out.Message = "No comments generated."
+	}
+	if len(warnings) > 0 {
+		out.Warnings = warnings
+		out.Status = "completed_with_warnings"
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")

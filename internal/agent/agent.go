@@ -88,6 +88,13 @@ type Args struct {
 	Session *session.SessionHistory
 }
 
+// AgentWarning describes a non-fatal warning recorded during review.
+type AgentWarning struct {
+	File    string `json:"file"`
+	Message string `json:"message"`
+	Type    string `json:"type"`
+}
+
 // Agent orchestrates the AI-powered code review.
 type Agent struct {
 	args              Args
@@ -99,6 +106,8 @@ type Agent struct {
 	totalTokensUsed   int64 // accumulated total tokens from all LLM calls, accessed atomically
 	totalInputTokens  int64 // accumulated input/prompt tokens, accessed atomically
 	totalOutputTokens int64 // accumulated completion tokens, accessed atomically
+	warningsMu        sync.Mutex
+	warnings          []AgentWarning
 }
 
 // CommentWorkerPool manages a fixed-size pool of workers dedicated to
@@ -239,6 +248,26 @@ func (a *Agent) TotalInputTokens() int64 {
 // TotalOutputTokens returns the accumulated completion tokens from all LLM calls.
 func (a *Agent) TotalOutputTokens() int64 {
 	return atomic.LoadInt64(&a.totalOutputTokens)
+}
+
+// Warnings returns a copy of non-fatal warnings recorded during review.
+func (a *Agent) Warnings() []AgentWarning {
+	a.warningsMu.Lock()
+	defer a.warningsMu.Unlock()
+	out := make([]AgentWarning, len(a.warnings))
+	copy(out, a.warnings)
+	return out
+}
+
+// recordWarning adds a non-fatal warning to the agent's warning list.
+func (a *Agent) recordWarning(warningType, file, message string) {
+	a.warningsMu.Lock()
+	a.warnings = append(a.warnings, AgentWarning{
+		File:    file,
+		Message: message,
+		Type:    warningType,
+	})
+	a.warningsMu.Unlock()
 }
 
 // loadDiffs populates the diff-related fields.
@@ -406,8 +435,9 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) error {
 
 	tokenCount := countMessagesTokens(messages)
 	if tokenCount > a.args.Template.TokenWarningThreshold {
-		fmt.Fprintf(stdout.Writer(), "[ocr] WARNING: prompt tokens (%d) exceed threshold (%d) for %s\n",
-			tokenCount, a.args.Template.TokenWarningThreshold, newPath)
+		msg := fmt.Sprintf("prompt tokens (%d) exceed threshold (%d)", tokenCount, a.args.Template.TokenWarningThreshold)
+		fmt.Fprintf(stdout.Writer(), "[ocr] WARNING: %s for %s\n", msg, newPath)
+		a.recordWarning("token_threshold_exceeded", newPath, msg)
 		telemetry.Event(ctx, "token.threshold.exceeded",
 			telemetry.AnyToAttr("file.path", newPath),
 			telemetry.AnyToAttr("tokens", tokenCount),

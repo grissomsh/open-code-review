@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	"github.com/open-code-review/open-code-review/internal/config/template"
 	"github.com/open-code-review/open-code-review/internal/config/testconnection"
 	"github.com/open-code-review/open-code-review/internal/llm"
 )
@@ -23,43 +25,55 @@ func runLLM(args []string) error {
 }
 
 func runLLMTest() error {
-	cfg, err := LoadMergedConfig(defaultConfigPath())
+	appCfg, err := LoadAppConfig(defaultConfigPath())
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	if cfg == nil || cfg.Llm.URL == "" || cfg.Llm.AuthToken == "" {
-		return fmt.Errorf("llm.url and llm.auth_token are required in %s, or set OCR_LLM_URL and OCR_LLM_TOKEN environment variables", defaultConfigPath())
+
+	ep, err := llm.ResolveEndpoint(defaultConfigPath())
+	if err != nil {
+		return fmt.Errorf("resolve LLM endpoint: %w", err)
 	}
 
 	task, err := testconnection.LoadDefault()
 	if err != nil {
 		return fmt.Errorf("load test task config: %w", err)
 	}
-	task.ApplyLanguage(cfg.Language)
+	if appCfg != nil {
+		task.ApplyLanguage(appCfg.Language)
+	}
 
 	timeout := 30 * time.Second
 	if task.Timeout > 0 {
 		timeout = time.Duration(task.Timeout) * time.Second
 	}
 
-	llmClient := llm.NewClient(llm.ClientConfig{
-		URL:     cfg.Llm.URL,
-		APIKey:  cfg.Llm.AuthToken,
-		Model:   cfg.Llm.Model,
-		Timeout: timeout,
-	})
+	tpl, err := template.LoadDefault()
+	if err != nil {
+		return fmt.Errorf("load default template: %w", err)
+	}
+
+	llmClient := llm.NewLLMClient(ep)
 
 	messages := make([]llm.Message, 0, len(task.Messages))
 	for _, m := range task.Messages {
 		messages = append(messages, llm.Message{Role: m.Role, Content: m.Content})
 	}
 
-	resp, err := llmClient.GeneralRequest(messages, cfg.Llm.Model, nil)
+	resp, err := func() (*llm.ChatResponse, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		return llmClient.CompletionsWithCtx(ctx, llm.ChatRequest{
+			Model:     ep.Model,
+			Messages:  messages,
+			MaxTokens: tpl.MaxTokens,
+		})
+	}()
 	if err != nil {
 		return fmt.Errorf("llm request failed: %w", err)
 	}
 
-	model := cfg.Llm.Model
+	model := ep.Model
 	if resp.Model != "" {
 		model = resp.Model
 	}

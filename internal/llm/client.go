@@ -1,6 +1,5 @@
-// Package llm provides an OpenAI-compatible LLM client interface.
-// OpenCodeReview supports any service that implements the OpenAI Chat Completion API schema,
-// including OpenAI, Claude (via Anthropic's OpenAI-compatible endpoint), local models, etc.
+// Package llm provides LLM client interfaces supporting multiple protocols.
+// Supported protocols: Anthropic Messages API, OpenAI Chat Completions API.
 package llm
 
 import (
@@ -23,6 +22,15 @@ import (
 
 const maxRetries = 10 // Maximum number of retry attempts with exponential backoff.
 
+// LLMClient is the unified interface for all LLM protocol implementations.
+type LLMClient interface {
+	Completions(req ChatRequest) (*ChatResponse, error)
+	CompletionsWithCtx(ctx context.Context, req ChatRequest) (*ChatResponse, error)
+	StreamCompletion(req ChatRequest, cb func(chunk []byte) error) error
+}
+
+// --- Shared data types ---
+
 // Message represents a single message in a chat conversation.
 // Content can be either plain string (for system/user/assistant/tool messages)
 // or an array of content blocks (used by Claude for multi-part content).
@@ -30,17 +38,17 @@ const maxRetries = 10 // Maximum number of retry attempts with exponential backo
 type Message struct {
 	Role       string     `json:"role"`
 	Content    any        `json:"content"`                // string or []ContentBlock
-	ToolCallID string     `json:"tool_call_id,omitempty"` // OpenAI tool result identifier
+	ToolCallID string     `json:"tool_call_id,omitempty"` // OpenAI tool call identifier
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant tool invocations
 }
 
 // ContentBlock represents a single block within a multi-part message content.
 // Used by Claude's Messages API for tool results and multimodal content.
 type ContentBlock struct {
-	Type     string          `json:"type"`                       // "text" or "tool_result"
-	Text     string          `json:"text,omitempty"`             // for type="text"
-	ToolUseID string         `json:"tool_use_id,omitempty"`      // for type="tool_result"
-	Content  []ContentBlock  `json:"content,omitempty"`          // nested text blocks inside tool_result
+	Type      string         `json:"type"`                          // "text" or "tool_result"
+	Text      string         `json:"text,omitempty"`                // for type="text"
+	ToolUseID string         `json:"tool_use_id,omitempty"`         // for type="tool_result"
+	Content   []ContentBlock `json:"content,omitempty"`             // nested text blocks inside tool_result
 }
 
 // NewTextMessage creates a message with simple string content.
@@ -95,7 +103,6 @@ func extractBlockText(block ContentBlock) string {
 	}
 	return sb.String()
 }
-
 
 // Choice holds a single choice from the response.
 type Choice struct {
@@ -169,29 +176,118 @@ type FunctionDef struct {
 
 // ClientConfig holds configuration for connecting to an LLM service.
 type ClientConfig struct {
-	URL string // Full API endpoint URL (e.g., "https://api.openai.com/v1/chat/completions")
-	APIKey  string        // Bearer token
+	URL     string        // Full API endpoint URL
+	APIKey  string        // Bearer token / API key
 	Model   string        // Default model override
 	Timeout time.Duration // Request timeout
 }
 
-// Client sends requests to an OpenAI-compatible chat completion API.
-type Client struct {
+// --- Factory ---
+
+// NewLLMClient creates the appropriate client based on the resolved endpoint protocol.
+// protocol: "anthropic" -> AnthropicClient, anything else -> OpenAIClient.
+func NewLLMClient(ep ResolvedEndpoint) LLMClient {
+	cfg := ClientConfig{
+		URL:    ep.URL,
+		APIKey: ep.Token,
+		Model:  ep.Model,
+	}
+	if ep.Protocol == "anthropic" {
+		return NewAnthropicClient(cfg)
+	}
+	return NewOpenAIClient(cfg)
+}
+
+// --- Token counting with tiktoken ---
+
+// modelTokenizerCache caches initialized tiktoken encoders keyed by encoding name.
+type modelTokenizerCache struct {
+	mu    sync.RWMutex
+	cache map[string]*tiktoken.Tiktoken
+}
+
+func newModelTokenizerCache() *modelTokenizerCache {
+	return &modelTokenizerCache{cache: make(map[string]*tiktoken.Tiktoken)}
+}
+
+func (c *modelTokenizerCache) getOrLoad(encName string) (*tiktoken.Tiktoken, error) {
+	c.mu.RLock()
+	if tke, ok := c.cache[encName]; ok {
+		c.mu.RUnlock()
+		return tke, nil
+	}
+	c.mu.RUnlock()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if tke, ok := c.cache[encName]; ok {
+		return tke, nil
+	}
+	enc, err := tiktoken.GetEncoding(encName)
+	if err != nil {
+		return nil, fmt.Errorf("get tiktoken encoding %q: %w", encName, err)
+	}
+	c.cache[encName] = enc
+	return enc, nil
+}
+
+var defaultTokenizer = newModelTokenizerCache()
+
+func countTokensWithEncoding(text string, encName string) int {
+	tke, err := defaultTokenizer.getOrLoad(encName)
+	if err != nil {
+		return len([]byte(text)) / 4
+	}
+	return len(tke.Encode(text, nil, nil))
+}
+
+func CountTokens(text string) int {
+	return CountTokensForModel(text, "")
+}
+
+func CountTokensForModel(text string, modelName string) int {
+	if text == "" {
+		return 0
+	}
+	encName := encodingForModel(modelName)
+	return countTokensWithEncoding(text, encName)
+}
+
+func encodingForModel(modelName string) string {
+	lower := strings.ToLower(modelName)
+	switch {
+	case strings.Contains(lower, "o1") || strings.Contains(lower, "o3") || strings.Contains(lower, "o4"):
+		return "o200k_base"
+	default:
+		return "cl100k_base"
+	}
+}
+
+// --- OpenAIClient ---
+
+// OpenAIClient sends requests to an OpenAI-compatible chat completion API.
+type OpenAIClient struct {
 	cfg    ClientConfig
 	client *http.Client
 }
 
-// NewClient creates a new LLM client from configuration.
-func NewClient(cfg ClientConfig) *Client {
+// NewOpenAIClient creates a new OpenAI-compatible LLM client.
+func NewOpenAIClient(cfg ClientConfig) *OpenAIClient {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 5 * time.Minute
 	}
-	return &Client{
+	return &OpenAIClient{
 		cfg: cfg,
 		client: &http.Client{
 			Timeout: cfg.Timeout,
 		},
 	}
+}
+
+// NewClient is kept as an alias for backward compatibility during transition.
+func NewClient(cfg ClientConfig) *OpenAIClient {
+	return NewOpenAIClient(cfg)
 }
 
 // ChatRequest represents the payload for a chat completion call.
@@ -201,15 +297,16 @@ type ChatRequest struct {
 	Tools       []ToolDef `json:"tools,omitempty"`
 	Stream      bool      `json:"stream,omitempty"`
 	Temperature *float64  `json:"temperature,omitempty"`
+	MaxTokens   int       `json:"max_tokens,omitempty"`
 }
 
 // Completions sends a chat completion request and returns the parsed response.
-func (c *Client) Completions(req ChatRequest) (*ChatResponse, error) {
+func (c *OpenAIClient) Completions(req ChatRequest) (*ChatResponse, error) {
 	return c.CompletionsWithCtx(context.Background(), req)
 }
 
 // CompletionsWithCtx sends a chat completion request with context support for cancellation and timeout.
-func (c *Client) CompletionsWithCtx(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+func (c *OpenAIClient) CompletionsWithCtx(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	model := req.Model
 	if model == "" {
 		model = c.cfg.Model
@@ -227,13 +324,13 @@ func (c *Client) CompletionsWithCtx(ctx context.Context, req ChatRequest) (*Chat
 	return result, err
 }
 
-// GeneralRequest sends a simple chat request without or with optional tool calls (for plan phase, compression, etc.).
-func (c *Client) GeneralRequest(messages []Message, model string, tools []ToolDef) (*ChatResponse, error) {
+// GeneralRequest sends a simple chat request without or with optional tool calls.
+func (c *OpenAIClient) GeneralRequest(messages []Message, model string, tools []ToolDef) (*ChatResponse, error) {
 	return c.GeneralRequestWithCtx(context.Background(), messages, model, tools)
 }
 
 // GeneralRequestWithCtx sends a simple chat request with context support.
-func (c *Client) GeneralRequestWithCtx(ctx context.Context, messages []Message, model string, tools []ToolDef) (*ChatResponse, error) {
+func (c *OpenAIClient) GeneralRequestWithCtx(ctx context.Context, messages []Message, model string, tools []ToolDef) (*ChatResponse, error) {
 	return c.CompletionsWithCtx(ctx, ChatRequest{
 		Model:    model,
 		Messages: messages,
@@ -241,85 +338,8 @@ func (c *Client) GeneralRequestWithCtx(ctx context.Context, messages []Message, 
 	})
 }
 
-// --- Token counting with tiktoken ---
-
-// modelTokenizerCache caches initialized tiktoken encoders keyed by encoding name.
-type modelTokenizerCache struct {
-	mu    sync.RWMutex
-	cache map[string]*tiktoken.Tiktoken
-}
-
-func newModelTokenizerCache() *modelTokenizerCache {
-	return &modelTokenizerCache{cache: make(map[string]*tiktoken.Tiktoken)}
-}
-
-func (c *modelTokenizerCache) getOrLoad(encName string) (*tiktoken.Tiktoken, error) {
-	// Fast path: read-only check
-	c.mu.RLock()
-	if tke, ok := c.cache[encName]; ok {
-		c.mu.RUnlock()
-		return tke, nil
-	}
-	c.mu.RUnlock()
-
-	// Slow path: load under write lock
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if tke, ok := c.cache[encName]; ok {
-		return tke, nil // another goroutine loaded it already
-	}
-	enc, err := tiktoken.GetEncoding(encName)
-	if err != nil {
-		return nil, fmt.Errorf("get tiktoken encoding %q: %w", encName, err)
-	}
-	c.cache[encName] = enc
-	return enc, nil
-}
-
-var defaultTokenizer = newModelTokenizerCache()
-
-// countTokensWithEncoding counts tokens using the specified tiktoken encoding.
-// It lazily caches the tokenizer under the hood. If loading fails, falls back
-// to byte estimation (len(text)/4).
-func countTokensWithEncoding(text string, encName string) int {
-	tke, err := defaultTokenizer.getOrLoad(encName)
-	if err != nil {
-		// Encoding unavailable — fall back to byte estimation.
-		return len([]byte(text)) / 4
-	}
-	return len(tke.Encode(text, nil, nil))
-}
-
-// CountTokens returns the number of tokens in text using the default tiktoken
-// encoding (cl100k_base). For model-specific counting, use CountTokensForModel.
-func CountTokens(text string) int {
-	return CountTokensForModel(text, "")
-}
-
-// CountTokensForModel returns the number of tokens in text using a tiktoken
-// encoding selected based on the given model name. Falls back to cl100k_base.
-func CountTokensForModel(text string, modelName string) int {
-	if text == "" {
-		return 0
-	}
-	encName := encodingForModel(modelName)
-	return countTokensWithEncoding(text, encName)
-}
-
-// encodingForModel selects the tiktoken encoding best suited for the given model name.
-func encodingForModel(modelName string) string {
-	lower := strings.ToLower(modelName)
-	switch {
-	case strings.Contains(lower, "o1") || strings.Contains(lower, "o3") || strings.Contains(lower, "o4"):
-		return "o200k_base"
-	default:
-		return "cl100k_base"
-	}
-}
-
 // StreamCompletion initiates a streaming chat completion. The callback is invoked per chunk.
-func (c *Client) StreamCompletion(req ChatRequest, cb func(chunk []byte) error) error {
+func (c *OpenAIClient) StreamCompletion(req ChatRequest, cb func(chunk []byte) error) error {
 	req.Stream = true
 
 	model := req.Model
@@ -375,23 +395,446 @@ func (c *Client) StreamCompletion(req ChatRequest, cb func(chunk []byte) error) 
 	})
 }
 
+// doRequest builds and sends a non-streaming completion request, returning the parsed response.
+func (c *OpenAIClient) doRequest(model string, req ChatRequest) (*ChatResponse, error) {
+	return c.doRequestCtx(context.Background(), model, req)
+}
+
+// doRequestCtx builds and sends a non-streaming completion request with context support.
+func (c *OpenAIClient) doRequestCtx(ctx context.Context, model string, req ChatRequest) (*ChatResponse, error) {
+	if model == "" {
+		model = c.cfg.Model
+	}
+	req.Model = model
+	payload, _ := json.Marshal(req)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.URL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		detail := extractErrorMessage(bodyBytes)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, detail)
+	}
+
+	var apiResp struct {
+		ID      string   `json:"id"`
+		Model   string   `json:"model"`
+		Choices []Choice `json:"choices"`
+	}
+	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return &ChatResponse{
+		ID:      apiResp.ID,
+		Model:   apiResp.Model,
+		Choices: apiResp.Choices,
+		Headers: resp.Header,
+		Usage:   resolveUsage(bodyBytes),
+	}, nil
+}
+
+// --- AnthropicClient ---
+
+const anthropicVersion = "2023-06-01"
+
+// AnthropicClient implements the Anthropic Messages API.
+type AnthropicClient struct {
+	cfg    ClientConfig
+	client *http.Client
+}
+
+// NewAnthropicClient creates a new Anthropic Messages API client.
+func NewAnthropicClient(cfg ClientConfig) *AnthropicClient {
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = 5 * time.Minute
+	}
+	if !strings.HasSuffix(cfg.URL, "/v1/messages") && !strings.HasSuffix(cfg.URL, "/v1/messages/") {
+		baseURL := strings.TrimRight(cfg.URL, "/")
+		if !strings.HasSuffix(baseURL, "/v1/messages") {
+			cfg.URL = baseURL + "/v1/messages"
+		}
+	}
+	return &AnthropicClient{
+		cfg: cfg,
+		client: &http.Client{
+			Timeout: cfg.Timeout,
+		},
+	}
+}
+
+// Completions sends a chat completion request and returns the parsed response.
+func (c *AnthropicClient) Completions(req ChatRequest) (*ChatResponse, error) {
+	return c.CompletionsWithCtx(context.Background(), req)
+}
+
+// CompletionsWithCtx sends a chat completion request with context support.
+func (c *AnthropicClient) CompletionsWithCtx(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+	model := req.Model
+	if model == "" {
+		model = c.cfg.Model
+	}
+
+	var result *ChatResponse
+	err := c.withRetryCtx(ctx, func() error {
+		resp, err := c.doRequestCtx(ctx, model, req)
+		if err != nil {
+			return err
+		}
+		result = resp
+		return nil
+	})
+	return result, err
+}
+
+// StreamCompletion initiates a streaming chat completion using SSE. The callback
+// is invoked per chunk with raw JSON data stripped of the "data: " prefix.
+func (c *AnthropicClient) StreamCompletion(req ChatRequest, cb func(chunk []byte) error) error {
+	req.Stream = true
+
+	model := req.Model
+	if model == "" {
+		model = c.cfg.Model
+	}
+
+	return c.withRetry(func() error {
+		body := c.buildRequestBody(model, req)
+		body.Stream = true
+
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal request body: %w", err)
+		}
+
+		httpReq, err := http.NewRequest(http.MethodPost, c.cfg.URL, bytes.NewReader(payload))
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("x-api-key", c.cfg.APIKey)
+		httpReq.Header.Set("anthropic-version", anthropicVersion)
+
+		resp, err := c.client.Do(httpReq)
+		if err != nil {
+			return fmt.Errorf("request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if isRetryableStatus(resp.StatusCode) {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API error %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+		if resp.StatusCode >= 400 {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API error %d: %s (non-retryable)", resp.StatusCode, string(bodyBytes))
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		var eventType string
+
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			// Capture event type line: "event: message_delta"
+			if strings.HasPrefix(line, "event: ") {
+				eventType = strings.TrimPrefix(line, "event: ")
+				continue
+			}
+
+			// Skip empty lines and non-data lines
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "" {
+				continue
+			}
+
+			// message_stop signals end of stream
+			if eventType == "message_stop" {
+				break
+			}
+
+			if err := cb([]byte(data)); err != nil {
+				return err
+			}
+		}
+		return scanner.Err()
+	})
+}
+
+// anthropicRequest is the request body for Anthropic Messages API.
+type anthropicRequest struct {
+	Model         string          `json:"model"`
+	MaxTokens     int             `json:"max_tokens"`
+	System        string          `json:"system,omitempty"`
+	Messages      []anthroMessage `json:"messages"`
+	Tools         []anthroTool    `json:"tools,omitempty"`
+	Stream        bool            `json:"stream,omitempty"`
+	Temperature   *float64        `json:"temperature,omitempty"`
+}
+
+type anthroMessage struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"` // string or []interface{}
+}
+
+// anthropicToolUseBlock represents a tool_use content block in Anthropic's Messages API.
+type anthropicToolUseBlock struct {
+	Type  string         `json:"type"`   // "tool_use"
+	ID    string         `json:"id"`     // tool use ID
+	Name  string         `json:"name"`   // function name
+	Input map[string]any `json:"input"`  // function arguments (parsed as object)
+}
+
+type anthroTool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
+// doRequestCtx builds and sends an Anthropic Messages API request.
+func (c *AnthropicClient) doRequestCtx(ctx context.Context, model string, req ChatRequest) (*ChatResponse, error) {
+	if model == "" {
+		model = c.cfg.Model
+	}
+
+	body := c.buildRequestBody(model, req)
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request body: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.URL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", c.cfg.APIKey)
+	httpReq.Header.Set("anthropic-version", anthropicVersion)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		detail := extractErrorMessage(bodyBytes)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, detail)
+	}
+
+	chatResp, err := c.parseResponse(bodyBytes, resp.Header)
+	if err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return chatResp, nil
+}
+
+// buildRequestBody converts the shared ChatRequest into Anthropic format.
+func (c *AnthropicClient) buildRequestBody(model string, req ChatRequest) anthropicRequest {
+	messages := make([]anthroMessage, 0, len(req.Messages))
+	var systemMsg string
+
+	var pendingToolResults []Message // collect consecutive tool messages
+
+	flushToolResults := func() {
+		if len(pendingToolResults) == 0 {
+			return
+		}
+		// Merge all pending tool results into a single user message
+		var blocks []interface{}
+		for _, tr := range pendingToolResults {
+			blocks = append(blocks, ContentBlock{
+				Type:      "tool_result",
+				ToolUseID: tr.ToolCallID,
+				Content: []ContentBlock{{
+					Type: "text",
+					Text: fmt.Sprintf("%v", tr.Content),
+				}},
+			})
+		}
+		messages = append(messages, anthroMessage{Role: "user", Content: blocks})
+		pendingToolResults = nil
+	}
+
+	for _, msg := range req.Messages {
+		switch msg.Role {
+		case "system":
+			if s, ok := msg.Content.(string); ok {
+				systemMsg = s
+			}
+			flushToolResults()
+		case "tool":
+			pendingToolResults = append(pendingToolResults, msg)
+		case "assistant":
+			flushToolResults()
+			// Build Anthropic content blocks from text + tool calls
+			var blocks []interface{}
+			if s, ok := msg.Content.(string); ok && s != "" {
+				blocks = append(blocks, ContentBlock{Type: "text", Text: s})
+			}
+			for _, tc := range msg.ToolCalls {
+				argsMap := map[string]any{}
+				if tc.Function.Arguments != "" {
+					if err := json.Unmarshal([]byte(tc.Function.Arguments), &argsMap); err != nil {
+						fmt.Fprintf(stdout.Writer(), "[llm] WARNING: failed to parse tool call arguments JSON for %q: %v\n", tc.ID, err)
+					}
+				}
+				blocks = append(blocks, anthropicToolUseBlock{
+					Type:  "tool_use",
+					ID:    tc.ID,
+					Name:  tc.Function.Name,
+					Input: argsMap,
+				})
+			}
+			if len(blocks) > 0 {
+				messages = append(messages, anthroMessage{Role: "assistant", Content: blocks})
+			} else {
+				s, _ := msg.Content.(string)
+				messages = append(messages, anthroMessage{Role: "assistant", Content: s})
+			}
+		default:
+			// user or other roles: flush tool results first
+			flushToolResults()
+			content := msg.Content
+			if blkArr, ok := content.([]ContentBlock); ok {
+				converted := make([]ContentBlock, len(blkArr))
+				for i, b := range blkArr {
+					converted[i] = ContentBlock{
+						Type:      b.Type,
+						Text:      b.Text,
+						ToolUseID: b.ToolUseID,
+						Content:   b.Content,
+					}
+				}
+				content = converted
+			}
+			messages = append(messages, anthroMessage{Role: msg.Role, Content: content})
+		}
+	}
+	flushToolResults() // flush any remaining tool results at the end
+
+	tools := make([]anthroTool, 0, len(req.Tools))
+	for _, t := range req.Tools {
+		tools = append(tools, anthroTool{
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			InputSchema: t.Function.Parameters,
+		})
+	}
+
+	maxTokens := req.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 8192 // Anthropic default
+	}
+
+	return anthropicRequest{
+		Model:       model,
+		MaxTokens:   maxTokens,
+		System:      systemMsg,
+		Messages:    messages,
+		Tools:       tools,
+		Stream:      false,
+		Temperature: req.Temperature,
+	}
+}
+
+// parseResponse converts Anthropic JSON response into ChatResponse.
+func (c *AnthropicClient) parseResponse(body []byte, headers http.Header) (*ChatResponse, error) {
+	type contentBlockResp struct {
+		Type  string `json:"type"`
+		Text  string `json:"text,omitempty"`
+		ID    string `json:"id,omitempty"`
+		Name  string `json:"name,omitempty"`
+		Input any    `json:"input,omitempty"`
+	}
+
+	var resp struct {
+		ID      string               `json:"id"`
+		Model   string               `json:"model"`
+		Type    string               `json:"type"`
+		Role    string               `json:"role"`
+		Content []contentBlockResp   `json:"content"`
+		Usage   *UsageInfo           `json:"usage"`
+		StopReason string            `json:"stop_reason,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+
+	// Build the response message from content blocks.
+	var textParts []string
+	var toolCalls []ToolCall
+
+	for _, block := range resp.Content {
+		switch block.Type {
+		case "text":
+			textParts = append(textParts, block.Text)
+		case "tool_use":
+			argsJSON, _ := json.Marshal(block.Input)
+			toolCalls = append(toolCalls, ToolCall{
+				ID:   block.ID,
+				Type: "function",
+				Function: FunctionCall{
+					Name:      block.Name,
+					Arguments: string(argsJSON),
+				},
+			})
+		}
+	}
+
+	var contentStr *string
+	if len(textParts) > 0 {
+		s := strings.Join(textParts, "\n")
+		contentStr = &s
+	}
+
+	finishReason := resp.StopReason
+	if finishReason == "" {
+		finishReason = "stop"
+	}
+
+	return &ChatResponse{
+		ID:    resp.ID,
+		Model: resp.Model,
+		Choices: []Choice{{
+			Message: ResponseMessage{
+				Role:      resp.Role,
+				Content:   contentStr,
+				ToolCalls: toolCalls,
+			},
+			FinishReason: finishReason,
+		}},
+		Headers: headers,
+		Usage:   resp.Usage,
+	}, nil
+}
+
 // --- Retry logic ---
 
-// stripThinkTags removes reasoning wrapper tags from content.
-func stripThinkTags(s string) string {
-	// Construct tag strings from individual bytes.
-	openBytes := []byte{0x3c, 't', 'h', 'i', 'n', 'k', 0x3e}
-	closeBytes := []byte{0x3c, 0x2f, 't', 'h', 'i', 'n', 'k', 0x3e}
-	s = strings.ReplaceAll(s, string(openBytes), "")
-	s = strings.ReplaceAll(s, string(closeBytes), "")
-	return s
-}
-
-func (c *Client) withRetry(fn func() error) error {
-	return c.withRetryCtx(context.Background(), fn)
-}
-
-func (c *Client) withRetryCtx(ctx context.Context, fn func() error) error {
+func retryWithCtx(ctx context.Context, fn func() error) error {
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		select {
@@ -414,6 +857,22 @@ func (c *Client) withRetryCtx(ctx context.Context, fn func() error) error {
 		}
 	}
 	return fmt.Errorf("request failed after %d retries: %w", maxRetries, lastErr)
+}
+
+func (c *OpenAIClient) withRetry(fn func() error) error {
+	return retryWithCtx(context.Background(), fn)
+}
+
+func (c *OpenAIClient) withRetryCtx(ctx context.Context, fn func() error) error {
+	return retryWithCtx(ctx, fn)
+}
+
+func (c *AnthropicClient) withRetry(fn func() error) error {
+	return retryWithCtx(context.Background(), fn)
+}
+
+func (c *AnthropicClient) withRetryCtx(ctx context.Context, fn func() error) error {
+	return retryWithCtx(ctx, fn)
 }
 
 // isRetryable determines whether an error is transient and worth retrying.
@@ -465,58 +924,14 @@ func sleepWithBackoff(attempt int) {
 	time.Sleep(delay)
 }
 
-
-// doRequest builds and sends a non-streaming completion request, returning the parsed response.
-func (c *Client) doRequest(model string, req ChatRequest) (*ChatResponse, error) {
-	return c.doRequestCtx(context.Background(), model, req)
-}
-
-// doRequestCtx builds and sends a non-streaming completion request with context support.
-func (c *Client) doRequestCtx(ctx context.Context, model string, req ChatRequest) (*ChatResponse, error) {
-	if model == "" {
-		model = c.cfg.Model
-	}
-	req.Model = model
-	payload, _ := json.Marshal(req)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.URL, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
-
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		detail := extractErrorMessage(bodyBytes)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, detail)
-	}
-
-	var apiResp struct {
-		ID      string   `json:"id"`
-		Model   string   `json:"model"`
-		Choices []Choice `json:"choices"`
-	}
-	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-
-	return &ChatResponse{
-		ID:      apiResp.ID,
-		Model:   apiResp.Model,
-		Choices: apiResp.Choices,
-		Headers: resp.Header,
-		Usage:   resolveUsage(bodyBytes),
-	}, nil
+// stripThinkTags removes reasoning wrapper tags from content.
+func stripThinkTags(s string) string {
+	// Construct tag strings from individual bytes.
+	openBytes := []byte{0x3c, 't', 'h', 'i', 'n', 'k', 0x3e}
+	closeBytes := []byte{0x3c, 0x2f, 't', 'h', 'i', 'n', 'k', 0x3e}
+	s = strings.ReplaceAll(s, string(openBytes), "")
+	s = strings.ReplaceAll(s, string(closeBytes), "")
+	return s
 }
 
 // extractErrorMessage attempts to pull a human-readable error message from

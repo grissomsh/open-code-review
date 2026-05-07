@@ -222,7 +222,7 @@ ocr review --commit abc123
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `PLAN_MODE_LINE_THRESHOLD` | 50 | 触发 Plan 阶段的文件变更行数阈值 |
-| `TOKEN_WARNING_THRESHOLD` | 50000 | 触发记忆压缩的 token 数量阈值 |
+| `MAX_TOKENS` | 58888 | 大模型请求的最大 token 数限制，内部阈值为该值的 80%（用于警告和记忆压缩） |
 | `MAX_TOOL_REQUEST_TIMES` | 20 | 每个文件的最大工具调用次数 |
 | `TOOL_REQUEST_WAIT_TIME_MS` | 10000 | 工具调用等待时间（毫秒） |
 | `MAX_SUBTASK_EXECUTION_TIME_MINUTES` | 5 | 单个子任务最长执行时间（分钟） |

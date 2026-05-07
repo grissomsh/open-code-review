@@ -42,7 +42,7 @@ type Args struct {
 	SystemRule *rules.SystemRule
 
 	// LLM client for model inference.
-	LLMClient *llm.Client
+	LLMClient llm.LLMClient
 
 	// Tool registry mapping tool aliases to implementations.
 	Tools tool.Registry
@@ -434,14 +434,16 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) error {
 	}
 
 	tokenCount := countMessagesTokens(messages)
-	if tokenCount > a.args.Template.TokenWarningThreshold {
-		msg := fmt.Sprintf("prompt tokens (%d) exceed threshold (%d)", tokenCount, a.args.Template.TokenWarningThreshold)
+	maxAllowed := a.args.Template.MaxTokens
+	tokenLimit := maxAllowed * 4 / 5 // 80% of MaxTokens
+	if tokenCount > tokenLimit {
+		msg := fmt.Sprintf("prompt tokens (%d) exceed %d%% of max_tokens(%d)", tokenCount, 80, maxAllowed)
 		fmt.Fprintf(stdout.Writer(), "[ocr] WARNING: %s for %s\n", msg, newPath)
 		a.recordWarning("token_threshold_exceeded", newPath, msg)
 		telemetry.Event(ctx, "token.threshold.exceeded",
 			telemetry.AnyToAttr("file.path", newPath),
 			telemetry.AnyToAttr("tokens", tokenCount),
-			telemetry.AnyToAttr("threshold", a.args.Template.TokenWarningThreshold))
+			telemetry.AnyToAttr("max_tokens", maxAllowed))
 		return nil
 	}
 
@@ -484,23 +486,20 @@ func (a *Agent) resolveSystemRule(path string) string {
 	return a.args.SystemRule.Resolve(path)
 }
 
-// filterLargeDiffs drops diffs whose diff content alone consumes more than 80% of the token threshold.
-// This prevents obviously oversized files from triggering API errors in the plan phase.
+// filterLargeDiffs drops diffs whose diff content alone consumes more than 80% of MaxTokens.
 func (a *Agent) filterLargeDiffs(diffs []model.Diff) []model.Diff {
-	threshold := a.args.Template.TokenWarningThreshold
-	if threshold <= 0 {
+	limit := a.args.Template.MaxTokens * 4 / 5
+	if limit <= 0 {
 		return diffs
 	}
-
-	limit := float64(threshold) * 0.8
 	var kept []model.Diff
 	skipped := 0
 
 	for _, d := range diffs {
 		tokens := llm.CountTokens(d.Diff)
-		if float64(tokens) > limit {
-			fmt.Fprintf(stdout.Writer(), "[ocr] Skipping %s (~%d tokens exceeds 80%% of threshold %d)\n",
-				d.NewPath, tokens, threshold)
+		if tokens > limit {
+			fmt.Fprintf(stdout.Writer(), "[ocr] Skipping %s (~%d tokens exceeds 80%% of max_tokens(%d))\n",
+				d.NewPath, tokens, a.args.Template.MaxTokens)
 			skipped++
 			continue
 		}
@@ -508,7 +507,7 @@ func (a *Agent) filterLargeDiffs(diffs []model.Diff) []model.Diff {
 	}
 
 	if skipped > 0 {
-		fmt.Fprintf(stdout.Writer(), "[ocr] Pre-filtered %d file(s) exceeding 80%% token threshold\n", skipped)
+		fmt.Fprintf(stdout.Writer(), "[ocr] Pre-filtered %d file(s) exceeding 80%% of max_tokens\n", skipped)
 	}
 	return kept
 }
@@ -571,7 +570,11 @@ func (a *Agent) executePlanPhase(ctx context.Context, newPath, rawDiff, changeFi
 	rec := fs.AppendTaskRecord(session.PlanTask, messages)
 	startTime := time.Now()
 
-	resp, err := a.args.LLMClient.GeneralRequestWithCtx(ctx, messages, a.args.Model, nil)
+	resp, err := a.args.LLMClient.CompletionsWithCtx(ctx, llm.ChatRequest{
+		Model:     a.args.Model,
+		Messages:  messages,
+		MaxTokens: a.args.Template.MaxTokens,
+	})
 	if err != nil {
 		rec.SetError(err, time.Since(startTime))
 		return "", fmt.Errorf("plan request: %w", err)
@@ -644,9 +647,10 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 		startTime := time.Now()
 
 		resp, err := a.args.LLMClient.Completions(llm.ChatRequest{
-			Model:    a.args.Model,
-			Messages: messages,
-			Tools:    a.args.MainToolDefs,
+			Model:     a.args.Model,
+			Messages:  messages,
+			Tools:     a.args.MainToolDefs,
+			MaxTokens: a.args.Template.MaxTokens,
 		})
 		duration := time.Since(startTime)
 		if err != nil {
@@ -809,9 +813,10 @@ func (a *Agent) collectPendingComments() []model.LlmComment {
 
 // addNextMessage adds assistant + tool response messages to the conversation history.
 func (a *Agent) addNextMessage(assistantContent string, toolCalls []llm.ToolCall, results []tool.ToolCallResult, messages *[]llm.Message, filePath string) bool {
-	// Check if context compression is needed
+	// Check if context compression is needed (80% of MaxTokens)
 	tokenCount := countMessagesTokens(*messages)
-	if tokenCount > a.args.Template.TokenWarningThreshold {
+	limit := a.args.Template.MaxTokens * 4 / 5
+	if tokenCount > limit {
 		*messages = a.compressAndRecord(*messages, filePath)
 	}
 
@@ -827,7 +832,7 @@ func (a *Agent) addNextMessage(assistantContent string, toolCalls []llm.ToolCall
 		*messages = append(*messages, llm.NewToolResultMessage(r.ToolCallID, r.Result))
 	}
 
-	return countMessagesTokens(*messages) < a.args.Template.TokenWarningThreshold
+	return countMessagesTokens(*messages) < limit
 }
 
 func countMessagesTokens(msgs []llm.Message) int {
@@ -874,7 +879,11 @@ func (a *Agent) compressAndRecord(msgs []llm.Message, filePath string) []llm.Mes
 	}
 
 	startTime := time.Now()
-	resp, err := a.args.LLMClient.GeneralRequest(compressionMsgs, a.args.Model, nil)
+	resp, err := a.args.LLMClient.Completions(llm.ChatRequest{
+		Model:     a.args.Model,
+		Messages:  compressionMsgs,
+		MaxTokens: a.args.Template.MaxTokens,
+	})
 	duration := time.Since(startTime)
 
 	fs := a.session.GetOrCreateFileSession(filePath)

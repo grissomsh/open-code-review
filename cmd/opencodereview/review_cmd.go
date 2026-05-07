@@ -9,9 +9,9 @@ import (
 
 	"github.com/open-code-review/open-code-review/internal/agent"
 	"github.com/open-code-review/open-code-review/internal/config/rules"
-	"github.com/open-code-review/open-code-review/internal/diff"
 	"github.com/open-code-review/open-code-review/internal/config/template"
 	"github.com/open-code-review/open-code-review/internal/config/toolsconfig"
+	"github.com/open-code-review/open-code-review/internal/diff"
 	"github.com/open-code-review/open-code-review/internal/llm"
 	"github.com/open-code-review/open-code-review/internal/stdout"
 	"github.com/open-code-review/open-code-review/internal/telemetry"
@@ -63,20 +63,21 @@ func runReview(args []string) error {
 		return fmt.Errorf("resolve repo: %w", err)
 	}
 
-	cfg, err := LoadMergedConfig(defaultConfigPath())
+	appCfg, err := LoadAppConfig(defaultConfigPath())
 	if err != nil {
 		return fmt.Errorf("load app config: %w", err)
 	}
-	if cfg == nil || cfg.Llm.URL == "" || cfg.Llm.AuthToken == "" {
-		return fmt.Errorf("llm.url and llm.auth_token are required in $HOME/.open-code-review/config.json, or set OCR_LLM_URL and OCR_LLM_TOKEN environment variables")
+	if appCfg != nil {
+		tpl.ApplyLanguage(appCfg.Language)
 	}
-	model := cfg.Llm.Model
-	tpl.ApplyLanguage(cfg.Language)
-	llmClient := llm.NewClient(llm.ClientConfig{
-		URL:     cfg.Llm.URL,
-		APIKey:  cfg.Llm.AuthToken,
-		Model:   model,
-	})
+
+	ep, err := llm.ResolveEndpoint(defaultConfigPath())
+	if err != nil {
+		return fmt.Errorf("resolve LLM endpoint: %w", err)
+	}
+
+	llmClient := llm.NewLLMClient(ep)
+	model := ep.Model
 
 	collector := tool.NewCommentCollector()
 	mode := tool.ParseReviewMode(opts.from, opts.to, opts.commit)

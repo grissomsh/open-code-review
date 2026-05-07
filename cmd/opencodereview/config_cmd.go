@@ -8,54 +8,6 @@ import (
 	"strconv"
 )
 
-// Environment variable names that override config file values.
-const (
-	envLLMURL     = "OCR_LLM_URL"
-	envLLMToken   = "OCR_LLM_TOKEN"
-	envLLMModel   = "OCR_LLM_MODEL"
-	envLanguage   = "OCR_LANGUAGE"
-)
-
-func envOrDefault(env, fallback string) string {
-	if v := os.Getenv(env); v != "" {
-		return v
-	}
-	return fallback
-}
-
-// LoadMergedConfig loads config from path, then overrides with environment variables if set.
-// Returns nil, nil if file does not exist and no env vars are set.
-func LoadMergedConfig(path string) (*Config, error) {
-	cfg, err := LoadAppConfig(path)
-	if err != nil {
-		return nil, err
-	}
-
-	hasEnv := os.Getenv(envLLMURL) != "" || os.Getenv(envLLMToken) != "" ||
-		os.Getenv(envLLMModel) != "" || os.Getenv(envLanguage) != ""
-	if !hasEnv && cfg == nil {
-		return nil, nil
-	}
-	if cfg == nil {
-		cfg = &Config{}
-	}
-
-	if v := os.Getenv(envLLMURL); v != "" {
-		cfg.Llm.URL = v
-	}
-	if v := os.Getenv(envLLMToken); v != "" {
-		cfg.Llm.AuthToken = v
-	}
-	if v := os.Getenv(envLLMModel); v != "" {
-		cfg.Llm.Model = v
-	}
-	if v := os.Getenv(envLanguage); v != "" {
-		cfg.Language = v
-	}
-
-	return cfg, nil
-}
-
 // Default config file location: ~/.open-code-review/config.json
 func defaultConfigPath() string {
 	home, err := os.UserHomeDir()
@@ -122,10 +74,11 @@ type Config struct {
 }
 
 type LlmConfig struct {
-	Provider  string `json:"provider,omitempty"`
-	URL     string `json:"url,omitempty"`
-	AuthToken string `json:"auth_token,omitempty"`
-	Model     string `json:"model,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	URL          string `json:"url,omitempty"`
+	AuthToken    string `json:"auth_token,omitempty"`
+	Model        string `json:"model,omitempty"`
+	UseAnthropic *bool  `json:"use_anthropic,omitempty"` // nil = default true; false = OpenAI protocol
 }
 
 // TelemetryConfig holds telemetry-specific settings.
@@ -177,6 +130,12 @@ func setConfigValue(cfg *Config, key, value string) error {
 		cfg.Llm.AuthToken = value
 	case "llm.model", "llm.Model":
 		cfg.Llm.Model = value
+	case "llm.use_anthropic", "llm.UseAnthropic":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid boolean for llm.use_anthropic: %w", err)
+		}
+		cfg.Llm.UseAnthropic = &b
 	case "language", "Language":
 		cfg.Language = value
 	case "telemetry.enabled", "telemetry.Enabled":
@@ -200,7 +159,7 @@ func setConfigValue(cfg *Config, key, value string) error {
 		cfg.ensureTelemetry()
 		cfg.Telemetry.ContentLog = b
 	default:
-		return fmt.Errorf("unknown config key: %s\nSupported keys: llm.provider, llm.url, llm.auth_token, llm.model, language, telemetry.enabled, telemetry.exporter, telemetry.otlp_endpoint, telemetry.content_logging", key)
+		return fmt.Errorf("unknown config key: %s\nSupported keys: llm.provider, llm.url, llm.auth_token, llm.model, llm.use_anthropic, language, telemetry.enabled, telemetry.exporter, telemetry.otlp_endpoint, telemetry.content_logging", key)
 	}
 	return nil
 }

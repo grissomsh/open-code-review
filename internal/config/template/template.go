@@ -13,7 +13,7 @@ type Template struct {
 	MainTask              LlmConversation  `json:"MAIN_TASK"`
 	PlanTask              *LlmConversation `json:"PLAN_TASK,omitempty"`
 	MemoryCompressionTask LlmConversation  `json:"MEMORY_COMPRESSION_TASK"`
-	TokenWarningThreshold int              `json:"TOKEN_WARNING_THRESHOLD"`
+	MaxTokens             int              `json:"MAX_TOKENS"`
 	ToolRequestWaitTimeMs int              `json:"TOOL_REQUEST_WAIT_TIME_MS"`
 	MaxToolRequestTimes   int              `json:"MAX_TOOL_REQUEST_TIMES"`
 	MaxSubtaskExecMinutes int              `json:"MAX_SUBTASK_EXECUTION_TIME_MINUTES"`
@@ -60,8 +60,8 @@ func (t *Template) ApplyLanguage(lang string) {
 	applyLanguage(&t.MemoryCompressionTask, instruction)
 }
 func (t *Template) Validate() error {
-	if t.TokenWarningThreshold <= 0 {
-		return fmt.Errorf("token_warning_threshold must be positive")
+	if t.MaxTokens <= 0 {
+		return fmt.Errorf("max_tokens must be positive")
 	}
 	if t.MaxToolRequestTimes <= 0 {
 		return fmt.Errorf("max_tool_request_times must be positive")

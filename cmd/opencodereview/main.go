@@ -73,7 +73,7 @@ Commands:
   version      Show version information
 
 Examples:
-  ocr review --from dev --to master        Review diff range
+  ocr review --from master --to dev        Review diff range
   ocr review --commit abc123               Review a single commit
   ocr config set llm.model opus-4-6        Set a config value
   ocr llm test                             Test LLM connectivity

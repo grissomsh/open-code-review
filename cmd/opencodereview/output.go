@@ -13,7 +13,7 @@ import (
 
 func outputText(comments []model.LlmComment) {
 	if len(comments) == 0 {
-		fmt.Println("No comments generated.")
+		fmt.Println("No comments generated. Looks good to me.")
 		return
 	}
 	for _, c := range comments {
@@ -155,7 +155,7 @@ func outputJSON(comments []model.LlmComment) error {
 		Comments: comments,
 	}
 	if len(comments) == 0 {
-		out.Message = "No comments generated."
+		out.Message = "No comments generated. Looks good to me."
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -168,7 +168,7 @@ func outputJSONWithWarnings(comments []model.LlmComment, warnings []agent.AgentW
 		Comments: comments,
 	}
 	if len(comments) == 0 {
-		out.Message = "No comments generated."
+		out.Message = "No comments generated. Looks good to me."
 	}
 	if len(warnings) > 0 {
 		out.Warnings = warnings

@@ -158,7 +158,7 @@ func runReview(args []string) error {
 	}
 	if opts.audience == "agent" {
 		if len(comments) == 0 {
-			fmt.Println("No comments generated.")
+			fmt.Println("No comments generated. Looks good to me.")
 		} else {
 			fmt.Printf("%d comment(s) generated.\n", len(comments))
 		}

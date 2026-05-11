@@ -157,11 +157,7 @@ func runReview(args []string) error {
 		return outputJSONWithWarnings(comments, ag.Warnings())
 	}
 	if opts.audience == "agent" {
-		if len(comments) == 0 {
-			fmt.Println("No comments generated. Looks good to me.")
-		} else {
-			fmt.Printf("%d comment(s) generated.\n", len(comments))
-		}
+		outputTextWithWarnings(comments, ag.Warnings())
 		return nil
 	}
 	outputTextWithWarnings(comments, ag.Warnings())

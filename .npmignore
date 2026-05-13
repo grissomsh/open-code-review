@@ -1,0 +1,16 @@
+cmd/
+internal/
+pkg/
+dist/
+Makefile
+go.mod
+go.sum
+scripts/install.sh
+scripts/release.sh
+scripts/hooks/
+scripts/publish/
+.claude/
+.git/
+.idea/
+.ossutil_checkpoint/
+README.md

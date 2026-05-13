@@ -11,7 +11,9 @@ scripts/hooks/
 verdor/
 temp/
 
-bin/
+# Ignore downloaded Go binary, but keep JS entry point
+!bin/ocr.js
+bin/opencodereview
 
 /opencodereview
 

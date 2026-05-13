@@ -167,6 +167,17 @@ async function main() {
     fs.mkdirSync(binDir, { recursive: true });
   }
 
+  // Ensure the JS wrapper has execute permission (needed on some Linux setups)
+  const jsWrapper = path.join(binDir, "ocr.js");
+  if (fs.existsSync(jsWrapper)) {
+    try {
+      fs.chmodSync(jsWrapper, 0o755);
+      info("Made ocr.js executable.");
+    } catch (e) {
+      warn(`Could not make ocr.js executable: ${e.message}`);
+    }
+  }
+
   // Download URL: bin/{VERSION}/{NAME}-{OS}-{ARCH}
   const versionNum = version.replace(/^v/, "");
   const remoteFileName = `${BINARY_NAME}-${os}-${arch}`;

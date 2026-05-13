@@ -142,3 +142,11 @@ Apache-2.0
 - feat: 为 llm test 增加来源和 url (f40872f)
 - chore(release): bump version to v0.1.2 (92c4119)
 - feat: fix bug (d9f9cb3)
+
+---
+
+## Changelog v0.1.4 (2026-05-13)
+
+- feat: ocr.js 可执行权限 (3b1f793)
+- chore(release): bump version to v0.1.3 (33d6380)
+- feat: update publish readme (c79d952)

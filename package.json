@@ -6,7 +6,9 @@
     "ocr": "bin/ocr.js"
   },
   "scripts": {
-    "postinstall": "node scripts/install.js"
+    "postinstall": "node scripts/install.js",
+    "prepublishOnly": "cp NPM-README.md README.md",
+    "postpublish": "git checkout README.md"
   },
   "publishConfig": {
     "registry": "https://registry.anpm.alibaba-inc.com"

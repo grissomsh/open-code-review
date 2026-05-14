@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# update-changelog.sh — Append changelog from git log to NPM-README.md.
+# update-changelog.sh — Prepend changelog from git log to CHANGELOG.md.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,7 +10,12 @@ PROJECT_ROOT="$(resolve_project_root)"
 VERSION_TAG="${VERSION_TAG:?VERSION_TAG is required}"
 NPM_VERSION="${NPM_VERSION:-$(npm_version_from_tag "$VERSION_TAG")}"
 
-README_FILE="$PROJECT_ROOT/NPM-README.md"
+CHANGELOG_FILE="$PROJECT_ROOT/CHANGELOG.md"
+
+# Create if not exists
+if [ ! -f "$CHANGELOG_FILE" ]; then
+    echo "# Changelog" > "$CHANGELOG_FILE"
+fi
 
 # Find the previous tag (or use --all if none exists)
 PREV_TAG=$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 "${VERSION_TAG}^" 2>/dev/null || true)
@@ -23,20 +28,20 @@ fi
 
 RELEASE_DATE=$(date -u +"%Y-%m-%d")
 
-CHANGELOG_BLOCK=$(cat <<CHANGES
-
----
-
-## Changelog v${NPM_VERSION} (${RELEASE_DATE})
-
-${CHANGELOG}
-CHANGES
-)
-
-# Check if this version already exists in README
-if grep -q "v${NPM_VERSION}" "$README_FILE" 2>/dev/null; then
-    info "Changelog for v${NPM_VERSION} already exists in NPM-README.md, skipping."
+# Check if this version already exists
+if grep -q "v${NPM_VERSION}" "$CHANGELOG_FILE" 2>/dev/null; then
+    info "Changelog for v${NPM_VERSION} already exists, skipping."
 else
-    echo "$CHANGELOG_BLOCK" >> "$README_FILE"
-    success "Changelog for v${NPM_VERSION} added to NPM-README.md"
+    # Build new content: heading + new block + rest of file
+    TEMP_FILE=$(mktemp)
+    echo "# Changelog" > "$TEMP_FILE"
+    echo "" >> "$TEMP_FILE"
+    echo "## v${NPM_VERSION} (${RELEASE_DATE})" >> "$TEMP_FILE"
+    echo "" >> "$TEMP_FILE"
+    echo "$CHANGELOG" >> "$TEMP_FILE"
+    echo "" >> "$TEMP_FILE"
+    # Append existing entries (skip the original heading line)
+    tail -n +2 "$CHANGELOG_FILE" >> "$TEMP_FILE"
+    mv "$TEMP_FILE" "$CHANGELOG_FILE"
+    success "Changelog for v${NPM_VERSION} added to CHANGELOG.md"
 fi

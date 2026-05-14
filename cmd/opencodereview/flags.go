@@ -204,7 +204,7 @@ type configAction struct {
 
 func parseConfigArgs(args []string) (configAction, error) {
 	if len(args) == 0 {
-		return configAction{}, fmt.Errorf("usage: ocr config set <key> <value>\ne.g., ocr config set llm.provider idealab")
+		return configAction{}, fmt.Errorf("usage: ocr config set <key> <value>\ne.g., ocr config set llm.model claude-opus-4-6")
 	}
 
 	subCmd := args[0]
@@ -230,12 +230,11 @@ Usage:
   ocr config set <key> <value>
 
 Examples:
-  ocr config set llm.provider idealab
   ocr config set llm.url https://xx/v1/openai/chat/completions
   ocr config set llm.auth_token xxxxxxxxxx
   ocr config set llm.model claude-opus-4-6
   ocr config set language English
   ocr config set telemetry.enabled true
 
-Supported keys: llm.provider, llm.url, llm.auth_token, llm.model, llm.use_anthropic, language, telemetry.enabled, telemetry.exporter, telemetry.otlp_endpoint, telemetry.content_logging`)
+Supported keys: llm.url, llm.auth_token, llm.model, llm.use_anthropic, language, telemetry.enabled, telemetry.exporter, telemetry.otlp_endpoint, telemetry.content_logging`)
 }

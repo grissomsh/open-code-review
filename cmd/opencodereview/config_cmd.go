@@ -74,7 +74,6 @@ type Config struct {
 }
 
 type LlmConfig struct {
-	Provider     string `json:"provider,omitempty"`
 	URL          string `json:"url,omitempty"`
 	AuthToken    string `json:"auth_token,omitempty"`
 	Model        string `json:"model,omitempty"`
@@ -122,8 +121,6 @@ func LoadAppConfig(path string) (*Config, error) {
 
 func setConfigValue(cfg *Config, key, value string) error {
 	switch key {
-	case "llm.provider", "llm.Provider":
-		cfg.Llm.Provider = value
 	case "llm.url", "llm.URL":
 		cfg.Llm.URL = value
 	case "llm.auth_token", "llm.AuthToken":
@@ -159,7 +156,7 @@ func setConfigValue(cfg *Config, key, value string) error {
 		cfg.ensureTelemetry()
 		cfg.Telemetry.ContentLog = b
 	default:
-		return fmt.Errorf("unknown config key: %s\nSupported keys: llm.provider, llm.url, llm.auth_token, llm.model, llm.use_anthropic, language, telemetry.enabled, telemetry.exporter, telemetry.otlp_endpoint, telemetry.content_logging", key)
+		return fmt.Errorf("unknown config key: %s\nSupported keys: llm.url, llm.auth_token, llm.model, llm.use_anthropic, language, telemetry.enabled, telemetry.exporter, telemetry.otlp_endpoint, telemetry.content_logging", key)
 	}
 	return nil
 }

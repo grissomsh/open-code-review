@@ -148,7 +148,6 @@ ocr review --commit abc123
 ```json
 {
   "llm": {
-    "provider": "claude",
     "url": "https://api.anthropic.com/v1/messages",
     "auth_token": "your-api-key",
     "model": "claude-opus-4-6"
@@ -159,7 +158,6 @@ ocr review --commit abc123
 
 | 字段 | 说明 | 示例 |
 |------|------|------|
-| `llm.provider` | 提供者名称（信息用途） | `openai`, `claude` |
 | `llm.url` | OpenAI 兼容 API 端点 | `https://api.openai.com/v1/chat/completions` |
 | `llm.auth_token` | API Key / 认证 Token | `sk-xxx...` |
 | `llm.model` | 模型标识 | `gpt-4o`, `claude-opus-4-6` |

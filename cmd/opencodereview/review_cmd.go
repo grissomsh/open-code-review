@@ -107,6 +107,7 @@ func runReview(args []string) error {
 		MaxConcurrency:        opts.concurrency,
 		ConcurrentTaskTimeout: opts.perFileTimeout,
 		Model:                 model,
+		Background:            opts.background,
 	})
 
 	// Silence progress output during execution; restore before Summary in agent mode.

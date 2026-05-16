@@ -102,6 +102,7 @@ type reviewOptions struct {
 	commit         string
 	outputFormat   string
 	audience       string // --audience: "human" (default) or "agent"
+	background     string // --background: optional requirement context
 	concurrency    int
 	perFileTimeout int
 	showHelp       bool
@@ -122,6 +123,7 @@ func parseReviewFlags(args []string) (reviewOptions, error) {
 	a.IntVar(&opts.concurrency, "concurrency", 8, "max concurrent file reviews")
 	a.IntVar(&opts.perFileTimeout, "timeout", 10, "concurrent task timeout in minutes")
 	a.StringVar(&opts.audience, "audience", "human", "output audience: human (show progress) or agent (summary only)")
+	a.StringVarP(&opts.background, "background", "b", "", "optional requirement/business context for the review")
 
 	if err := a.Parse(args); err != nil {
 		return opts, fmt.Errorf("parse flags: %w", err)
@@ -183,6 +185,7 @@ Examples:
 
 Flags:
   --audience string       output audience: human (show progress) or agent (summary only) (default "human")
+  -b, --background string optional requirement/business context for the review
   -c, --commit string     single commit hash or tag to review (vs its parent)
   -f, --format string     output format: text or json (default "text")
   --concurrency int       max concurrent file reviews (default 8)

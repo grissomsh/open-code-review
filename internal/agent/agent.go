@@ -79,6 +79,10 @@ type Args struct {
 	// can serve diff content to the LLM without duplicating git parsing.
 	DiffMap map[string]string
 
+	// Background is an optional requirement/business context string
+	// injected into plan and main_task prompts via {{requirement_background}}.
+	Background string
+
 	// Model is the user-configured model name used as fallback when
 	// template phases (plan/memory_compression) don't specify one.
 	Model string
@@ -454,6 +458,7 @@ func (a *Agent) executeSubtask(ctx context.Context, d model.Diff) error {
 		content = strings.ReplaceAll(content, "{{system_rule}}", rule)
 		content = strings.ReplaceAll(content, "{{change_files}}", changeFilesExcludingCurrent)
 		content = strings.ReplaceAll(content, "{{diff}}", d.Diff)
+		content = strings.ReplaceAll(content, "{{requirement_background}}", a.args.Background)
 		if planResult == "" {
 			content = strings.ReplaceAll(content, "### 审查计划\n{{plan_guidance}}\n\n", "")
 		} else {
@@ -591,6 +596,7 @@ func (a *Agent) executePlanPhase(ctx context.Context, newPath, rawDiff, changeFi
 		content = strings.ReplaceAll(content, "{{system_rule}}", rule)
 		content = strings.ReplaceAll(content, "{{change_files}}", changeFiles)
 		content = strings.ReplaceAll(content, "{{diff}}", rawDiff)
+		content = strings.ReplaceAll(content, "{{requirement_background}}", a.args.Background)
 		content = strings.ReplaceAll(content, "{{plan_tools}}", formatToolDefs(a.args.PlanToolDefs))
 		messages = append(messages, llm.NewTextMessage(m.Role, content))
 	}

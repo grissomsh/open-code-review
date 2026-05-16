@@ -18,7 +18,9 @@ import (
 
 // Event emits a structured event as a span with immediate end.
 func Event(ctx context.Context, name string, attrs ...attribute.KeyValue) {
-	if !IsEnabled() || ctx == nil { return }
+	if !IsEnabled() || ctx == nil {
+		return
+	}
 
 	opts := []trace.SpanStartOption{trace.WithAttributes(attrs...)}
 	_, span := otel.GetTracerProvider().Tracer(serviceName).Start(ctx, "event."+name, opts...)
@@ -32,7 +34,9 @@ func Eventf(ctx context.Context, name string, msg string, attrs ...attribute.Key
 
 // ErrorEvent emits an error event with error status.
 func ErrorEvent(ctx context.Context, name string, err error, extraAttrs ...attribute.KeyValue) {
-	if !IsEnabled() || ctx == nil || err == nil { return }
+	if !IsEnabled() || ctx == nil || err == nil {
+		return
+	}
 
 	attrs := append(extraAttrs, attribute.String("error", err.Error()))
 	_, span := otel.GetTracerProvider().Tracer(serviceName).Start(ctx, "event."+name,
@@ -63,12 +67,13 @@ func FormatDuration(dur time.Duration) string {
 
 // PrintTraceSummary prints a one-line summary of the review to stdout.
 func PrintTraceSummary(filesReviewed, commentsGenerated int64, inputTokens, outputTokens, totalTokens int64, duration time.Duration) {
+	elapsed := duration.Round(time.Second).String()
 	if inputTokens > 0 || outputTokens > 0 {
 		fmt.Fprintf(stdout.Writer(), "[ocr] Summary: %d file(s) reviewed, %d comment(s), ~%d token(s) used (input: ~%d, output: ~%d), %s elapsed\n",
-			filesReviewed, commentsGenerated, totalTokens, inputTokens, outputTokens, FormatDuration(duration))
+			filesReviewed, commentsGenerated, totalTokens, inputTokens, outputTokens, elapsed)
 	} else {
 		fmt.Fprintf(stdout.Writer(), "[ocr] Summary: %d file(s) reviewed, %d comment(s), ~%d token(s) used, %s elapsed\n",
-			filesReviewed, commentsGenerated, totalTokens, FormatDuration(duration))
+			filesReviewed, commentsGenerated, totalTokens, elapsed)
 	}
 }
 

@@ -22,6 +22,16 @@ import (
 
 const maxRetries = 10 // Maximum number of retry attempts with exponential backoff.
 
+var AppVersion = "dev"
+
+func userAgent(provider string) string {
+	ua := "open-code-review/" + AppVersion
+	if provider != "" {
+		ua += " | " + provider
+	}
+	return ua
+}
+
 // LLMClient is the unified interface for all LLM protocol implementations.
 type LLMClient interface {
 	Completions(req ChatRequest) (*ChatResponse, error)
@@ -361,6 +371,7 @@ func (c *OpenAIClient) StreamCompletion(req ChatRequest, cb func(chunk []byte) e
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 		httpReq.Header.Set("Accept", "text/event-stream")
+		httpReq.Header.Set("User-Agent", userAgent(""))
 
 		resp, err := c.client.Do(httpReq)
 		if err != nil {
@@ -413,6 +424,7 @@ func (c *OpenAIClient) doRequestCtx(ctx context.Context, model string, req ChatR
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	httpReq.Header.Set("User-Agent", userAgent(""))
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
@@ -527,6 +539,7 @@ func (c *AnthropicClient) StreamCompletion(req ChatRequest, cb func(chunk []byte
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("x-api-key", c.cfg.APIKey)
 		httpReq.Header.Set("anthropic-version", anthropicVersion)
+		httpReq.Header.Set("User-Agent", userAgent("claude"))
 
 		resp, err := c.client.Do(httpReq)
 		if err != nil {
@@ -627,6 +640,7 @@ func (c *AnthropicClient) doRequestCtx(ctx context.Context, model string, req Ch
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", c.cfg.APIKey)
 	httpReq.Header.Set("anthropic-version", anthropicVersion)
+	httpReq.Header.Set("User-Agent", userAgent("claude"))
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {

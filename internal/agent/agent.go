@@ -675,7 +675,7 @@ func (a *Agent) performLlmCodeReview(ctx context.Context, messages []llm.Message
 		rec := fs.AppendTaskRecord(session.MainTask, append([]llm.Message(nil), messages...))
 		startTime := time.Now()
 
-		resp, err := a.args.LLMClient.Completions(llm.ChatRequest{
+		resp, err := a.args.LLMClient.CompletionsWithCtx(ctx, llm.ChatRequest{
 			Model:     a.args.Model,
 			Messages:  messages,
 			Tools:     a.args.MainToolDefs,

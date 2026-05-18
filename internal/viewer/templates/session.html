@@ -67,46 +67,106 @@
 {{end}}
 
 <h3>Conversations ({{len .Session.Files}} files)</h3>
+<div class="conversations">
 {{range .Session.Files}}
-<details>
-    <summary><strong>{{.FilePath}}</strong></summary>
-    <div class="task-group">
-        {{range $tt, $cards := .Tasks}}
-        <h4>{{$tt}}</h4>
-        {{range $cards}}
-        <div class="card">
-            <div class="card-header">
-                <span>Request #{{.RequestNo}}</span>
-                {{if .Model}}<span class="badge">{{.Model}}</span>{{end}}
-                {{if or .PromptTokens .CompletionTokens}}<span class="badge">P:{{.PromptTokens}} C:{{.CompletionTokens}}</span>{{end}}
-                {{if .DurationMs}}<span class="badge">{{.DurationMs}}ms</span>{{end}}
-                {{if .Error}}<span class="badge error">{{.Error}}</span>{{end}}
-            </div>
-            {{with .ResponseContent}}
-            <div class="card-body response-content">
-                <pre>{{.}}</pre>
-            </div>
-            {{end}}
-            {{if .ToolCalls}}
-            <div class="tool-calls">
-                {{range .ToolCalls}}
-                <div class="tool-call {{if not .Ok}}error{{end}}">
-                    <strong>{{.Name}}</strong>
-                    <details>
-                        <summary>Arguments &amp; Result</summary>
-                        <div class="tool-args"><pre>{{.Arguments}}</pre></div>
-                        <div class="tool-result"><pre>{{.Result}}</pre></div>
-                    </details>
+<details class="file-accordion">
+    <summary class="file-accordion-header">
+        <span class="chevron"></span>
+        <span class="file-path">{{.FilePath}}</span>
+        <span class="file-count-badge">{{cardCount .Tasks}} requests</span>
+    </summary>
+    <div class="file-accordion-body">
+        {{range $tg := orderedTasks .Tasks}}
+        <div class="task-group {{taskTypeClass $tg.Type}}">
+            <h4 class="task-type-label">
+                <span class="task-type-dot"></span>
+                {{$tg.Type}}
+            </h4>
+            {{range $tg.Cards}}
+            <div class="card">
+                <div class="card-header">
+                    <span class="request-label">Request #{{.RequestNo}}</span>
+                    {{if .Model}}<span class="badge badge-model">{{.Model}}</span>{{end}}
+                    {{if or .PromptTokens .CompletionTokens}}<span class="badge badge-tokens">P:{{.PromptTokens}} C:{{.CompletionTokens}}</span>{{end}}
+                    {{if .DurationMs}}<span class="badge badge-duration">{{.DurationMs}}ms</span>{{end}}
+                    {{if .Error}}<span class="badge badge-error">{{.Error}}</span>{{end}}
+                </div>
+                {{with .ResponseContent}}
+                <div class="card-body response-content">
+                    <div class="response-text">{{.}}</div>
+                </div>
+                {{end}}
+                {{if .ToolCalls}}
+                <div class="tool-calls-section">
+                    <div class="tool-calls-label">Tool Calls ({{len .ToolCalls}})</div>
+                    {{range .ToolCalls}}
+                    <div class="tool-call-item {{if not .Ok}}tool-call-error{{end}}">
+                        <div class="tool-call-header">
+                            <span class="tool-icon">&#9881;</span>
+                            <strong class="tool-name">{{.Name}}</strong>
+                            {{if .DurationMs}}<span class="badge badge-duration">{{.DurationMs}}ms</span>{{end}}
+                            {{if not .Ok}}<span class="badge badge-error">Failed</span>{{end}}
+                        </div>
+                        <details class="tool-detail">
+                            <summary class="tool-detail-toggle">
+                                <span class="chevron-sm"></span>
+                                <span>Show Details</span>
+                            </summary>
+                            <div class="tool-detail-body">
+                                <div class="tool-section">
+                                    <div class="tool-section-label">Arguments</div>
+                                    <pre>{{.Arguments}}</pre>
+                                </div>
+                                {{if .Result}}
+                                <div class="tool-section">
+                                    <div class="tool-section-label">Result</div>
+                                    <pre>{{.Result}}</pre>
+                                </div>
+                                {{end}}
+                            </div>
+                        </details>
+                    </div>
+                    {{end}}
                 </div>
                 {{end}}
             </div>
             {{end}}
         </div>
         {{end}}
-        {{end}}
     </div>
 </details>
 {{end}}
+</div>
+
+<script>
+document.querySelectorAll('.response-text').forEach(function(el) {
+    var text = el.textContent;
+    var esc = function(s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    };
+    var codeBlocks = [];
+    var html = esc(text);
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
+        codeBlocks.push(code.replace(/^\n|\n$/g, ''));
+        return '%%CODEBLOCK_' + (codeBlocks.length - 1) + '%%';
+    });
+    html = html
+        .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/^### (.+)$/gm, '<div class="md-h3">$1</div>')
+        .replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>')
+        .replace(/^# (.+)$/gm, '<div class="md-h1">$1</div>')
+        .replace(/^[-*] (.+)$/gm, '<div class="md-li">&bull; $1</div>')
+        .replace(/\n{2,}/g, '<br><br>')
+        .replace(/\n/g, '<br>');
+    codeBlocks.forEach(function(code, i) {
+        html = html.replace('%%CODEBLOCK_' + i + '%%',
+            '<pre class="code-block"><code>' + code + '</code></pre>');
+    });
+    el.innerHTML = html;
+});
+</script>
 </main>
 </body>
 </html>

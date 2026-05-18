@@ -25,7 +25,7 @@ func SessionsRoot() (string, error) {
 
 // RepoInfo represents a discovered repository from the sessions directory.
 type RepoInfo struct {
-	EncodedPath  string    // encoded directory name on disk
+	EncodedPath  string // encoded directory name on disk
 	SessionCount int
 	LastModified time.Time
 }
@@ -175,9 +175,9 @@ func peekSession(path string) (SessionSummary, error) {
 
 // ViewSession holds fully parsed records for one session.
 type ViewSession struct {
-	Summary     SessionSummary
-	TokenUsage  TokenUsageSummary
-	Files       []*FileGroup // ordered by file path
+	Summary    SessionSummary
+	TokenUsage TokenUsageSummary
+	Files      []*FileGroup // ordered by file path
 }
 
 // TokenUsageSummary aggregates estimated token counts across the session.
@@ -190,8 +190,8 @@ type TokenUsageSummary struct {
 
 // FileTokenUsage tracks token totals for a single file within a session.
 type FileTokenUsage struct {
-	FilePath        string
-	PromptTokens    int
+	FilePath         string
+	PromptTokens     int
 	CompletionTokens int
 }
 
@@ -212,14 +212,14 @@ const (
 
 // TaskCard links an LLM request with its response and tool calls.
 type TaskCard struct {
-	RequestMessages any    // preserved for display
-	RequestNo       int
-	ResponseContent string
-	ToolCalls       []ToolCallInfo
-	DurationMs      int64
-	Error           string
-	Model           string
-	PromptTokens    int
+	RequestMessages  any // preserved for display
+	RequestNo        int
+	ResponseContent  string
+	ToolCalls        []ToolCallInfo
+	DurationMs       int64
+	Error            string
+	Model            string
+	PromptTokens     int
 	CompletionTokens int
 }
 
@@ -335,9 +335,11 @@ func LoadSession(root, encodedRepo, sessionID string) (*ViewSession, error) {
 						if tm, ok := tc.(map[string]any); ok {
 							name, _ := tm["name"].(string)
 							args, _ := tm["arguments"].(string)
-							card.ToolCalls = append(card.ToolCalls, ToolCallInfo{
-								Name: name, Arguments: args,
-							})
+							info := ToolCallInfo{Name: name, Arguments: args}
+							if name == "task_done" {
+								info.Ok = true
+							}
+							card.ToolCalls = append(card.ToolCalls, info)
 						}
 					}
 				}
@@ -361,11 +363,13 @@ func LoadSession(root, encodedRepo, sessionID string) (*ViewSession, error) {
 				cards := fg.Tasks[TaskType(tt)]
 				if len(cards) > 0 {
 					card := cards[len(cards)-1]
-					ti := len(card.ToolCalls) - 1
-					if ti >= 0 && card.ToolCalls[ti].Result == "" {
-						card.ToolCalls[ti].Result = result
-						card.ToolCalls[ti].Ok = okVal
-						card.ToolCalls[ti].DurationMs = durationMs
+					for ti := range card.ToolCalls {
+						if card.ToolCalls[ti].Result == "" && !card.ToolCalls[ti].Ok {
+							card.ToolCalls[ti].Result = result
+							card.ToolCalls[ti].Ok = okVal
+							card.ToolCalls[ti].DurationMs = durationMs
+							break
+						}
 					}
 				}
 			}

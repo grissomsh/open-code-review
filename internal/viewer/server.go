@@ -73,6 +73,52 @@ func parseTemplate(name string) (*template.Template, error) {
 		"formatTime":     formatTime,
 		"truncate":       truncateText,
 		"add":            func(a, b int) int { return a + b },
+		"cardCount": func(tasks map[TaskType][]*TaskCard) int {
+			n := 0
+			for _, cards := range tasks {
+				n += len(cards)
+			}
+			return n
+		},
+		"taskTypeClass": func(tt TaskType) string {
+			switch tt {
+			case PlanTask:
+				return "task-plan"
+			case MainTask:
+				return "task-main"
+			case MemoryCompressionTask:
+				return "task-memory"
+			default:
+				return "task-default"
+			}
+		},
+		"orderedTasks": func(tasks map[TaskType][]*TaskCard) []struct {
+			Type  TaskType
+			Cards []*TaskCard
+		} {
+			order := []TaskType{PlanTask, MainTask, MemoryCompressionTask}
+			var result []struct {
+				Type  TaskType
+				Cards []*TaskCard
+			}
+			for _, tt := range order {
+				if cards, ok := tasks[tt]; ok {
+					result = append(result, struct {
+						Type  TaskType
+						Cards []*TaskCard
+					}{tt, cards})
+				}
+			}
+			for tt, cards := range tasks {
+				if tt != PlanTask && tt != MainTask && tt != MemoryCompressionTask {
+					result = append(result, struct {
+						Type  TaskType
+						Cards []*TaskCard
+					}{tt, cards})
+				}
+			}
+			return result
+		},
 	}
 	content, err := assets.ReadFile("templates/" + name)
 	if err != nil {

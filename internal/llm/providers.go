@@ -1,6 +1,9 @@
 package llm
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Provider holds the preset configuration for a known LLM provider.
 type Provider struct {
@@ -130,25 +133,30 @@ func init() {
 // The returned Provider has its own copy of the Models slice.
 func LookupProvider(name string) (Provider, bool) {
 	p, ok := registryMap[strings.ToLower(strings.TrimSpace(name))]
-	if ok && p.Models != nil {
-		models := make([]string, len(p.Models))
-		copy(models, p.Models)
-		p.Models = models
+	if ok {
+		p = copyProvider(p)
 	}
 	return p, ok
 }
 
-// ListProviders returns all built-in providers in registration order.
-// Each returned Provider has its own copy of the Models slice.
+// ListProviders returns all built-in providers sorted by provider name.
+// Each returned Provider has its own copy of the Models slice in registry order.
 func ListProviders() []Provider {
 	out := make([]Provider, len(registry))
 	for i, p := range registry {
-		if p.Models != nil {
-			models := make([]string, len(p.Models))
-			copy(models, p.Models)
-			p.Models = models
-		}
-		out[i] = p
+		out[i] = copyProvider(p)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
 	return out
+}
+
+func copyProvider(p Provider) Provider {
+	if p.Models != nil {
+		models := make([]string, len(p.Models))
+		copy(models, p.Models)
+		p.Models = models
+	}
+	return p
 }

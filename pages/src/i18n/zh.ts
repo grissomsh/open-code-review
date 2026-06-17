@@ -64,14 +64,20 @@ export const zh: TranslationKeys = {
   // Benchmark Section
   'benchmark.sectionLabel': '开放基准测试',
   'benchmark.title': '80+ 位资深工程师交叉标注验证',
-  'benchmark.subtitle': '基于真实场景的 CodeReview 基准测试，由 80+ 位资深工程师交叉标注。Open Code Review 在 F1、精确率、召回率上全面领先通用 Agent 方案。',
+  'benchmark.subtitle': '基于真实场景的 CodeReview 基准测试，从 50 个热门开源仓库中精选 200 个真实的 PullRequest，覆盖 10 种编程语言、多种问题类型与不同的变更规模，并由 80+ 位资深工程师交叉标注完成。',
   'benchmark.legendOcr': 'Open Code Review',
-  'benchmark.legendClaude': 'Claude Code + Skills（通用方案）',
+  'benchmark.legendCc': 'Claude Code · /code-review',
   'benchmark.colRank': '排名',
   'benchmark.colModel': '模型',
   'benchmark.colSource': '来源',
   'benchmark.colVersion': '版本',
-  'benchmark.footer': '基准测试由 80+ 位资深工程师交叉标注 · 语义 F1 指标',
+  'benchmark.colPrecision': '准确率',
+  'benchmark.colRecall': '召回率',
+  'benchmark.colAvgTime': '平均耗时',
+  'benchmark.colAvgToken': '平均 Token',
+  'benchmark.tooltipInput': '输入 Token',
+  'benchmark.tooltipOutput': '输出 Token',
+  'benchmark.footer': '',
 
   // QuickStart Section
   'quickstart.sectionLabel': '快速开始',

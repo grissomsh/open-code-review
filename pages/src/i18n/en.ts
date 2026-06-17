@@ -64,14 +64,20 @@ export const en: TranslationKeys = {
   // Benchmark Section
   'benchmark.sectionLabel': 'Open Benchmark',
   'benchmark.title': 'Cross-Validated by 80+ Senior Engineers',
-  'benchmark.subtitle': 'A real-world CodeReview benchmark cross-annotated by 80+ senior engineers. Open Code Review leads across F1, Precision, and Recall over generic Agent approaches.',
+  'benchmark.subtitle': 'A real-world CodeReview benchmark comprising 200 real PullRequests selected from 50 popular open-source repositories, covering 10 programming languages, diverse issue types, and varying changeset sizes, cross-annotated by 80+ senior engineers.',
   'benchmark.legendOcr': 'Open Code Review',
-  'benchmark.legendClaude': 'Claude Code + Skills (Generic)',
+  'benchmark.legendCc': 'Claude Code · /code-review',
   'benchmark.colRank': 'Rank',
   'benchmark.colModel': 'Model',
   'benchmark.colSource': 'Source',
   'benchmark.colVersion': 'Version',
-  'benchmark.footer': 'Benchmark cross-annotated by 80+ senior engineers · Semantic F1 metric',
+  'benchmark.colPrecision': 'Precision',
+  'benchmark.colRecall': 'Recall',
+  'benchmark.colAvgTime': 'Avg Time',
+  'benchmark.colAvgToken': 'Avg Token',
+  'benchmark.tooltipInput': 'Input Token',
+  'benchmark.tooltipOutput': 'Output Token',
+  'benchmark.footer': '',
 
   // QuickStart Section
   'quickstart.sectionLabel': 'Quick Start',
